@@ -70,7 +70,9 @@ body {
 #penguin-container { position:relative; width:var(--penguin-width); height:var(--panel-height); flex:0 0 var(--penguin-width);}
 #penguin-body, #penguin-mouth { width:100%; height:100%; display:block;}
 #penguin-mouth { position:absolute; left:58%; top:39.0625%; width:24%; height:14.5089%; transform-origin:50% 50%; pointer-events:none;}
-.chat-panel { flex:0 0 var(--chat-width); width:var(--chat-width); max-width:none; height:var(--panel-height); display:flex; flex-direction:column;}
+.chat-column { flex:0 0 var(--chat-width); width:var(--chat-width); display:flex; flex-direction:column; gap:8px;}
+.chat-panel { width:100%; max-width:none; height:var(--panel-height); display:flex; flex-direction:column;}
+.credit-note { font-size:clamp(11px, 2.4vw, 13px); line-height:1.5; color:#4d6174;}
 .mouth-moving { animation: talk 0.3s infinite;}
 @keyframes talk {0%,100%{transform:scaleY(1);}50%{transform:scaleY(1.5);}}
 #chat {width:100%; flex:1; min-height:0; border:1px solid #ccc; background:#fff; padding:10px; overflow-y:auto; margin-bottom:10px; box-sizing:border-box;}
@@ -100,12 +102,15 @@ body {
             <img id="penguin-body" src="penguin_body.png" alt="Penguin body">
             <img id="penguin-mouth" src="mouth.png" alt="Penguin mouth">
         </div>
-        <div class="chat-panel">
+        <div class="chat-column">
+            <div class="chat-panel">
             <div id="chat"></div>
             <div class="input-row">
         <input type="text" id="user-input" placeholder="質問を入力…">
         <button id="send-btn">送信</button>
             </div>
+            </div>
+            <div class="credit-note">Tokyo University Secretary Tanaka drew the penguin, and Kaito Kobayashi built the chatbot.</div>
         </div>
     </div>
 </div>
