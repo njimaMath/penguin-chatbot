@@ -6,10 +6,12 @@
 <title>Penguin Chatbot</title>
 <style>
 body {
-    --panel-height: 370px;
-    --penguin-width: 206px;
-    --chat-width: 480px;
-    --layout-gap: 18px;
+    --page-gutter: clamp(8px, 3vw, 16px);
+    --layout-gap: clamp(8px, 2vw, 18px);
+    --content-width: min(calc(100vw - (var(--page-gutter) * 2)), 704px);
+    --penguin-width: clamp(104px, calc((var(--content-width) - var(--layout-gap)) * 0.3), 206px);
+    --chat-width: calc(var(--content-width) - var(--penguin-width) - var(--layout-gap));
+    --panel-height: clamp(186px, calc(var(--penguin-width) * 224 / 125), 370px);
     font-family: Arial;
     background:#f5f5f5;
     display:flex;
@@ -21,7 +23,7 @@ body {
 .page-title {
     position:absolute;
     top:0;
-    left:calc((100% - (var(--penguin-width) + var(--chat-width) + var(--layout-gap))) / 2);
+    left:calc((100% - var(--content-width)) / 2);
     z-index:2;
     display:inline-flex;
     align-items:center;
@@ -55,35 +57,36 @@ body {
     max-width:820px;
     width:100%;
     margin-top:32px;
-    padding:72px 16px 16px;
+    padding:72px var(--page-gutter) 16px;
 }
-.main-layout { display:flex; align-items:flex-start; justify-content:center; gap:var(--layout-gap);}
+.main-layout {
+    display:flex;
+    align-items:flex-start;
+    justify-content:flex-start;
+    gap:var(--layout-gap);
+    width:var(--content-width);
+    margin:0 auto;
+}
 #penguin-container { position:relative; width:var(--penguin-width); height:var(--panel-height); flex:0 0 var(--penguin-width);}
 #penguin-body, #penguin-mouth { width:100%; height:100%; display:block;}
 #penguin-mouth { position:absolute; left:58%; top:39.0625%; width:24%; height:14.5089%; transform-origin:50% 50%; pointer-events:none;}
-.chat-panel { flex:1; max-width:var(--chat-width); width:100%; height:var(--panel-height); display:flex; flex-direction:column;}
+.chat-panel { flex:0 0 var(--chat-width); width:var(--chat-width); max-width:none; height:var(--panel-height); display:flex; flex-direction:column;}
 .mouth-moving { animation: talk 0.3s infinite;}
 @keyframes talk {0%,100%{transform:scaleY(1);}50%{transform:scaleY(1.5);}}
 #chat {width:100%; flex:1; min-height:0; border:1px solid #ccc; background:#fff; padding:10px; overflow-y:auto; margin-bottom:10px; box-sizing:border-box;}
 .message.user {text-align:right; color:#004488;}
 .message.bot {text-align:left; color:#0a7722;}
-.input-row { display:flex; width:100%;}
-#user-input {width:calc(100% - 100px); padding:10px; font-size:16px; box-sizing:border-box;}
-#send-btn {width:80px; padding:10px; font-size:16px; margin-left:10px; background:#0066cc; color:#fff; border:none; border-radius:4px; cursor:pointer;}
+.input-row { display:flex; width:100%; gap:clamp(6px, 2vw, 10px);}
+#user-input {flex:1; min-width:0; padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); box-sizing:border-box;}
+#send-btn {flex:0 0 clamp(58px, 24%, 80px); padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); margin-left:0; background:#0066cc; color:#fff; border:none; border-radius:4px; cursor:pointer;}
 #send-btn:hover {background:#004c99;}
 @media (max-width: 860px) {
-    body {
-        --panel-height: clamp(260px, calc(100vh - 250px), 370px);
-        --penguin-width: calc(var(--panel-height) * 125 / 224);
-    }
     .page-title {
-        left:calc((100% - var(--penguin-width)) / 2);
+        left:calc((100% - var(--content-width)) / 2);
         padding:10px 14px;
     }
     .page-title-text { font-size:20px; }
     .container { margin-top:24px; padding-top:64px; }
-    .main-layout { flex-direction:column; align-items:center;}
-    .chat-panel { max-width:var(--chat-width);}
 }
 </style>
 </head>
