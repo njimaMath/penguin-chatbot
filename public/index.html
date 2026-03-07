@@ -6,10 +6,10 @@
 <title>Penguin Chatbot</title>
 <style>
 body {
-    --panel-height: 340px;
-    --penguin-width: 190px;
-    --chat-width: 440px;
-    --layout-gap: 16px;
+    --panel-height: 370px;
+    --penguin-width: 206px;
+    --chat-width: 480px;
+    --layout-gap: 18px;
     font-family: Arial;
     background:#f5f5f5;
     display:flex;
@@ -52,7 +52,7 @@ body {
 .container {
     position:relative;
     box-sizing:border-box;
-    max-width:760px;
+    max-width:820px;
     width:100%;
     margin-top:32px;
     padding:72px 16px 16px;
@@ -73,7 +73,7 @@ body {
 #send-btn:hover {background:#004c99;}
 @media (max-width: 860px) {
     body {
-        --panel-height: clamp(240px, calc(100vh - 260px), 340px);
+        --panel-height: clamp(260px, calc(100vh - 250px), 370px);
         --penguin-width: calc(var(--panel-height) * 125 / 224);
     }
     .page-title {
