@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const TOKYO_TIME_ZONE = "Asia/Tokyo";
 const TOKYO_UTC_OFFSET_HOURS = 9;
 const DEFAULT_SITE_TEXT = "セミナーの詳細はWebサイトを確認してください。";
 const DEFAULT_TIME_RANGE = "16:00 - 17:30";
@@ -15,6 +16,97 @@ const dataFilePath = path.join(__dirname, "data.txt");
 
 function normalizeText(value) {
   return value.replace(/[\s\u3000]+/g, " ").trim();
+}
+
+function getTokyoNowParts(now = new Date()) {
+  const formatter = new Intl.DateTimeFormat("ja-JP-u-ca-gregory", {
+    timeZone: TOKYO_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const values = {};
+
+  for (const part of formatter.formatToParts(now)) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    weekday: values.weekday,
+    hour: values.hour,
+    minute: values.minute,
+    second: values.second,
+  };
+}
+
+function detectCurrentDateTimeIntent(message) {
+  const normalizedMessage = normalizeText(message);
+  const asksCurrentTime = [
+    /今\s*何時/u,
+    /いま\s*なんじ/u,
+    /現在時刻/u,
+    /今の時間/u,
+    /いまの時間/u,
+    /^何時(?:ですか)?[?？]?$/u,
+  ].some((pattern) => pattern.test(normalizedMessage));
+  const asksCurrentDate = [
+    /今日の日付/u,
+    /きょうの日付/u,
+    /今日は何日/u,
+    /きょうは何日/u,
+    /今日何日/u,
+    /きょう何日/u,
+    /今日は何曜日/u,
+    /きょうは何曜日/u,
+    /現在の日付/u,
+    /今の日付/u,
+  ].some((pattern) => pattern.test(normalizedMessage));
+
+  if (asksCurrentTime && asksCurrentDate) {
+    return "datetime";
+  }
+
+  if (asksCurrentTime) {
+    return "time";
+  }
+
+  if (asksCurrentDate) {
+    return "date";
+  }
+
+  return null;
+}
+
+function buildCurrentDateTimeReply(message, now = new Date()) {
+  const intent = detectCurrentDateTimeIntent(message);
+  if (!intent) {
+    return null;
+  }
+
+  const { year, month, day, weekday, hour, minute } = getTokyoNowParts(now);
+  const dateText = `${year}年${month}月${day}日（${weekday}）`;
+  const timeText = `${hour}:${minute}`;
+
+  if (intent === "date") {
+    return `今日は日本時間で${dateText}です。現在時刻は${timeText}です。`;
+  }
+
+  return `今は日本時間で${dateText}の${timeText}です。`;
+}
+
+function buildCurrentDateTimePrompt(now = new Date()) {
+  const { year, month, day, weekday, hour, minute, second } = getTokyoNowParts(now);
+  return `現在の日本時間は${year}年${month}月${day}日（${weekday}）${hour}:${minute}:${second}です。日時に関する質問は必ずこの情報を基準に答えてください。`;
 }
 
 function loadSiteText() {
@@ -231,6 +323,12 @@ app.post("/chat", async (req, res) => {
   }
 
   try {
+    const currentDateTimeReply = buildCurrentDateTimeReply(userMessage);
+    if (currentDateTimeReply) {
+      return res.json({ reply: currentDateTimeReply });
+    }
+
+    const currentDateTimePrompt = buildCurrentDateTimePrompt();
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -240,11 +338,12 @@ app.post("/chat", async (req, res) => {
         "X-Title": "Penguin Chatbot",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
+        model: "google/gemini-2.5-flash-lite",
         messages: [
           {
             role: "system",
             content: [
+              currentDateTimePrompt,
               "あなたはアシスタントのピーチャンです。",
               "セミナー情報を説明するときは、箇条書きやMarkdown記号を使わず、自然な日本語の文で答えてください。",
               "場所は省略せず、会場名や部屋番号を自然な文として説明してください。",
