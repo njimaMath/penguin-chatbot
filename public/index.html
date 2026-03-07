@@ -9,6 +9,7 @@ body {
     --panel-height: 340px;
     --penguin-width: 190px;
     --chat-width: 440px;
+    --layout-gap: 16px;
     font-family: Arial;
     background:#f5f5f5;
     display:flex;
@@ -17,8 +18,46 @@ body {
     margin:0;
     padding:0;
 }
-.container { max-width:760px; width:100%; margin-top:32px; padding:16px;}
-.main-layout { display:flex; align-items:flex-start; justify-content:center; gap:16px;}
+.page-title {
+    position:absolute;
+    top:0;
+    left:calc((100% - (var(--penguin-width) + var(--chat-width) + var(--layout-gap))) / 2);
+    z-index:2;
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 18px;
+    border:1px solid rgba(0, 76, 153, 0.12);
+    border-radius:999px;
+    background:rgba(255, 255, 255, 0.92);
+    box-shadow:0 10px 26px rgba(0, 0, 0, 0.08);
+    backdrop-filter:blur(10px);
+}
+.page-title::before {
+    content:"";
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:linear-gradient(135deg, #0066cc, #00a0e9);
+    box-shadow:0 0 0 6px rgba(0, 102, 204, 0.08);
+}
+.page-title-text {
+    font-size:24px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    color:#103b66;
+    line-height:1;
+    text-transform:lowercase;
+}
+.container {
+    position:relative;
+    box-sizing:border-box;
+    max-width:760px;
+    width:100%;
+    margin-top:32px;
+    padding:72px 16px 16px;
+}
+.main-layout { display:flex; align-items:flex-start; justify-content:center; gap:var(--layout-gap);}
 #penguin-container { position:relative; width:var(--penguin-width); height:var(--panel-height); flex:0 0 var(--penguin-width);}
 #penguin-body, #penguin-mouth { width:100%; height:100%; display:block;}
 #penguin-mouth { position:absolute; left:58%; top:39.0625%; width:24%; height:14.5089%; transform-origin:50% 50%; pointer-events:none;}
@@ -37,6 +76,12 @@ body {
         --panel-height: clamp(240px, calc(100vh - 260px), 340px);
         --penguin-width: calc(var(--panel-height) * 125 / 224);
     }
+    .page-title {
+        left:calc((100% - var(--penguin-width)) / 2);
+        padding:10px 14px;
+    }
+    .page-title-text { font-size:20px; }
+    .container { margin-top:24px; padding-top:64px; }
     .main-layout { flex-direction:column; align-items:center;}
     .chat-panel { max-width:var(--chat-width);}
 }
@@ -44,6 +89,9 @@ body {
 </head>
 <body>
 <div class="container">
+    <div class="page-title" aria-label="p-chan bot title">
+        <span class="page-title-text">p-chan bot</span>
+    </div>
     <div class="main-layout">
         <div id="penguin-container">
             <img id="penguin-body" src="penguin_body.png" alt="Penguin body">
