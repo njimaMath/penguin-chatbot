@@ -225,52 +225,25 @@ app.post("/chat", async (req, res) => {
   const userMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
   console.log("ユーザーからメッセージを受信:", userMessage);
 
-  if (!userMessage) {
-    return res.status(400).json({ error: "message is required" });
-  }
-
   if (isSeminarScheduleQuestion(userMessage)) {
     const nextSeminar = getNextSeminar(seminarSchedule);
     return res.json({ reply: buildNextSeminarReply(nextSeminar) });
   }
 
   try {
-    const now = new Date();
-    const nowJst = now.toLocaleString('ja-JP', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-<<<<<<< HEAD
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         "HTTP-Referer": "https://render.com",
         "X-Title": "Penguin Chatbot",
       },
       body: JSON.stringify({
-=======
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        // 修正ポイント1: 実際のアプリのURL、または空でない適切なURLを入れる
-        "HTTP-Referer": "https://penguin-chatbot.onrender.com", 
-        "X-Title": "Penguin Chatbot"
-      },
-      body: JSON.stringify({
-        // 修正ポイント2: モデル名が正しいか再確認。もしダメなら下記を試す
->>>>>>> 511acbed33b4c292de7732a241c36646f5b3b5ad
         model: "google/gemini-2.0-flash-001",
         messages: [
           {
             role: "system",
-<<<<<<< HEAD
             content: [
               "あなたはアシスタントのピーチャンです。",
               "セミナー情報を説明するときは、箇条書きやMarkdown記号を使わず、自然な日本語の文で答えてください。",
@@ -281,15 +254,6 @@ app.post("/chat", async (req, res) => {
           { role: "user", content: userMessage },
         ],
       }),
-=======
-            content: `あなたはアシスタントのピーちゃんです。現在日時（日本時間/JST）は ${nowJst} です。参考情報: ${siteText}`
-          },
-          { role: "user", content: req.body.message }
-        ],
-        // 修正ポイント3: 無料モデルでタイムアウトを防ぐための安全策
-        timeout: 30000 
-      })
->>>>>>> 511acbed33b4c292de7732a241c36646f5b3b5ad
     });
 
     const data = await response.json();
