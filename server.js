@@ -13,6 +13,13 @@ const TOKYO_UTC_OFFSET_HOURS = 9;
 const DEFAULT_SITE_TEXT = "セミナーの詳細はWebサイトを確認してください。";
 const DEFAULT_TIME_RANGE = "16:00 - 17:30";
 const dataFilePath = path.join(__dirname, "data.txt");
+const BURIKKO_SYSTEM_PROMPT = [
+  "あなたはアシスタントのピーチャンです。",
+  "返答は基本的に日本語で、ぶりっこで親しみやすい口調にしてください。",
+  "語尾は「〜だよ」「〜なの」「〜かも」などのやわらかい表現を自然に混ぜて、かわいく話してください。",
+  "ただし、事実、日時、場所、固有名詞は正確に伝えて、情報を盛らないでください。",
+  "かわいい口調でも、答えはわかりやすく簡潔にまとめてください。",
+].join(" ");
 
 function normalizeText(value) {
   return value.replace(/[\s\u3000]+/g, " ").trim();
@@ -107,6 +114,15 @@ function buildCurrentDateTimeReply(message, now = new Date()) {
 function buildCurrentDateTimePrompt(now = new Date()) {
   const { year, month, day, weekday, hour, minute, second } = getTokyoNowParts(now);
   return `現在の日本時間は${year}年${month}月${day}日（${weekday}）${hour}:${minute}:${second}です。日時に関する質問は必ずこの情報を基準に答えてください。`;
+}
+
+function styleDirectReply(text) {
+  const normalized = typeof text === "string" ? normalizeText(text) : "";
+  if (!normalized) {
+    return "ぴーちゃん、うまくお返事できなかったの。";
+  }
+
+  return `ぴーちゃんがお答えするね。${normalized} えへへ。`;
 }
 
 function loadSiteText() {
@@ -319,13 +335,13 @@ app.post("/chat", async (req, res) => {
 
   if (isSeminarScheduleQuestion(userMessage)) {
     const nextSeminar = getNextSeminar(seminarSchedule);
-    return res.json({ reply: buildNextSeminarReply(nextSeminar) });
+    return res.json({ reply: styleDirectReply(buildNextSeminarReply(nextSeminar)) });
   }
 
   try {
     const currentDateTimeReply = buildCurrentDateTimeReply(userMessage);
     if (currentDateTimeReply) {
-      return res.json({ reply: currentDateTimeReply });
+      return res.json({ reply: styleDirectReply(currentDateTimeReply) });
     }
 
     const currentDateTimePrompt = buildCurrentDateTimePrompt();
@@ -344,6 +360,7 @@ app.post("/chat", async (req, res) => {
             role: "system",
             content: [
               currentDateTimePrompt,
+              BURIKKO_SYSTEM_PROMPT,
               "あなたはアシスタントのピーチャンです。",
               "セミナー情報を説明するときは、箇条書きやMarkdown記号を使わず、自然な日本語の文で答えてください。",
               "場所は省略せず、会場名や部屋番号を自然な文として説明してください。",
