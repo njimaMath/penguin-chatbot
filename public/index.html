@@ -6,8 +6,9 @@
 <title>Penguin Chatbot</title>
 <style>
 body {
-    --panel-height: 448px;
-    --penguin-width: 250px;
+    --panel-height: 400px;
+    --penguin-width: 223px;
+    --chat-width: 520px;
     font-family: Arial;
     background:#f5f5f5;
     display:flex;
@@ -16,12 +17,12 @@ body {
     margin:0;
     padding:0;
 }
-.container { max-width:980px; width:100%; margin-top:40px; padding:20px;}
-.main-layout { display:flex; align-items:flex-start; justify-content:center; gap:24px;}
+.container { max-width:880px; width:100%; margin-top:40px; padding:20px;}
+.main-layout { display:flex; align-items:flex-start; justify-content:center; gap:20px;}
 #penguin-container { position:relative; width:var(--penguin-width); height:var(--panel-height); flex:0 0 var(--penguin-width);}
 #penguin-body, #penguin-mouth { width:100%; height:100%; display:block;}
 #penguin-mouth { position:absolute; left:58%; top:39.0625%; width:24%; height:14.5089%; transform-origin:50% 50%; pointer-events:none;}
-.chat-panel { flex:1; max-width:600px; width:100%; height:var(--panel-height); display:flex; flex-direction:column;}
+.chat-panel { flex:1; max-width:var(--chat-width); width:100%; height:var(--panel-height); display:flex; flex-direction:column;}
 .mouth-moving { animation: talk 0.3s infinite;}
 @keyframes talk {0%,100%{transform:scaleY(1);}50%{transform:scaleY(1.5);}}
 #chat {width:100%; flex:1; min-height:0; border:1px solid #ccc; background:#fff; padding:10px; overflow-y:auto; margin-bottom:10px; box-sizing:border-box;}
@@ -33,11 +34,11 @@ body {
 #send-btn:hover {background:#004c99;}
 @media (max-width: 860px) {
     body {
-        --panel-height: clamp(320px, calc(100vh - 220px), 448px);
+        --panel-height: clamp(280px, calc(100vh - 240px), 400px);
         --penguin-width: calc(var(--panel-height) * 125 / 224);
     }
     .main-layout { flex-direction:column; align-items:center;}
-    .chat-panel { max-width:600px;}
+    .chat-panel { max-width:var(--chat-width);}
 }
 </style>
 </head>
