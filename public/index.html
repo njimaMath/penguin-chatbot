@@ -78,6 +78,11 @@ body {
 #chat {width:100%; flex:1; min-height:0; border:1px solid #ccc; background:#fff; padding:10px; overflow-y:auto; margin-bottom:10px; box-sizing:border-box;}
 .message.user {text-align:right; color:#004488;}
 .message.bot {text-align:left; color:#0a7722;}
+.message.bot a{color:#0a5cbf; text-decoration:underline; word-break:break-all;}
+.message.bot details{margin-top:6px; font-size:0.92em;}
+.message.bot summary{cursor:pointer; color:#0a5cbf;}
+.abstract-original{margin-top:4px; color:#333; white-space:pre-wrap; line-height:1.5;}
+#send-btn:disabled{background:#9bbad6; cursor:default;}
 .input-row { display:flex; width:100%; gap:clamp(6px, 2vw, 10px);}
 #user-input {flex:1; min-width:0; padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); box-sizing:border-box;}
 #send-btn {flex:0 0 clamp(58px, 24%, 80px); padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); margin-left:0; background:#0066cc; color:#fff; border:none; border-radius:4px; cursor:pointer;}
@@ -122,47 +127,105 @@ const mouth = document.getElementById('penguin-mouth');
 const chat = document.getElementById('chat');
 const input = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
+let isSending = false;
 
-function appendMessage(role, text){
-    const div = document.createElement('div');
-    div.className = `message ${role}`;
-    div.textContent = text;
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
+// 本文を安全に描画(URLだけ<a>化、それ以外はtextNode=XSS防止)
+function appendLinkedText(parent, text){
+    const parts = String(text).split(/(https?:\/\/[^\s、。）)]+)/gu);
+    for(const part of parts){
+        if(/^https?:\/\//.test(part)){
+            try{
+                const u = new URL(part);
+                if(u.protocol === "http:" || u.protocol === "https:"){
+                    const a = document.createElement("a");
+                    a.href = u.href; a.textContent = part;
+                    a.target = "_blank"; a.rel = "noopener noreferrer";
+                    parent.appendChild(a);
+                    continue;
+                }
+            }catch(_){ /* fall through to text */ }
+        }
+        parent.appendChild(document.createTextNode(part));
+    }
 }
 
-function startMouthMovement(duration){
-    mouth.classList.add('mouth-moving');
-    setTimeout(()=>mouth.classList.remove('mouth-moving'), duration);
+function appendMessage(role, text, abstracts){
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    if(role === "user"){
+        div.textContent = text;                  // ユーザー入力はリンク化しない
+    }else{
+        appendLinkedText(div, text);
+        if(Array.isArray(abstracts)){            // 要旨があれば原文を折りたたみで添える
+            for(const ab of abstracts){
+                if(ab.abstractMissing || !ab.original) continue;
+                const d = document.createElement("details");
+                const s = document.createElement("summary");
+                s.textContent = `要旨の原文を見る（${ab.dateLabel}）`;
+                const body = document.createElement("div");
+                body.className = "abstract-original";
+                appendLinkedText(body, ab.original);
+                d.appendChild(s); d.appendChild(body);
+                div.appendChild(d);
+            }
+        }
+    }
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
 }
 
 async function askChatGPT(message){
-    const res = await fetch("/chat",{ 
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message})
-    });
-
-    if(!res.ok){
-        const data = await res.json().catch(()=>({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
+    const controller = new AbortController();
+    const timer = setTimeout(()=>controller.abort(), 60000);  // フォールバック無し方針=60s
+    try{
+        const res = await fetch("/chat",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({message}),
+            signal: controller.signal,
+        });
+        if(!res.ok){
+            const data = await res.json().catch(()=>({}));
+            const err = new Error(data.error || `HTTP ${res.status}`);
+            err.status = res.status;
+            throw err;
+        }
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
     }
-
-    const data = await res.json();
-    return data.reply;
 }
 
 async function handleSend(){
+    if(isSending) return;                         // 二重送信防止
     const message = input.value.trim();
     if(!message) return;
+    isSending = true; sendBtn.disabled = true;
     appendMessage("user", message);
-    input.value="";
-    startMouthMovement(3000);
+    input.value = "";
+    mouth.classList.add('mouth-moving');          // 応答が返るまで口パク継続(固定3秒タイマー廃止)
+
+    const typing = appendMessage("bot", "考え中…");
+    const slowTimer = setTimeout(()=>{ typing.textContent = "サーバーが起きるまで少し待ってね…"; }, 3000);
+
     try{
-        const reply = await askChatGPT(message);
-        appendMessage("bot", reply);
+        const data = await askChatGPT(message);
+        clearTimeout(slowTimer);
+        typing.remove();
+        appendMessage("bot", data.reply || "うまくお返事できなかったの。ごめんね。", data.abstract);
     }catch(e){
-        appendMessage("bot",`すみません、応答できませんでした。${e.message ? ` (${e.message})` : ""}`);
+        clearTimeout(slowTimer);
+        typing.remove();
+        const msg = (e.name === "AbortError")
+            ? "ごめんね、お返事に時間がかかりすぎちゃったみたい。もう一度試してね。"
+            : "ごめんね、うまくお返事できなかったの。少し時間をおいて試してね。";
+        appendMessage("bot", msg);
+        console.error(e);                          // 生エラーは画面に出さずログのみ
+    }finally{
+        mouth.classList.remove('mouth-moving');
+        isSending = false; sendBtn.disabled = false;
+        input.focus();
     }
 }
 

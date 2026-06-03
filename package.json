@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "scrape": "node scrape.js"
+    "scrape": "node scrape.js",
+    "test": "node test/verify-parser-invariants.mjs && node test/verify-next.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "axios": "^1.13.6",

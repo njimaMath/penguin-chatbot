@@ -1,6 +1,23 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
+import { parseSeminarSchedule } from './memo.js';
+
+// 壊れた/空のデータで data.txt を上書きしないためのサニティチェック
+function runSanityChecks(newText) {
+  const errors = [];
+  if (newText.length < 5000) errors.push(`data.txt が小さすぎます (${newText.length} bytes)`);
+  if (!newText.includes('今後の予定')) errors.push('『今後の予定』が見当たりません(構造変化の可能性)');
+  const seminars = parseSeminarSchedule(newText);
+  if (seminars.length < 50) errors.push(`抽出セミナー件数が異常です (${seminars.length}件)`);
+  try {
+    const prev = fs.readFileSync('data.txt', 'utf-8');
+    if (prev.length > 5000 && newText.length < prev.length * 0.5) {
+      errors.push(`サイズが前回比で半減しています (${prev.length} → ${newText.length})`);
+    }
+  } catch { /* 初回は前回データ無し */ }
+  return { errors, seminars };
+}
 
 const ROOT_URL = 'https://sites.google.com/view/tokyo-probability-seminar23';
 const SITE_ORIGIN = 'https://sites.google.com';
@@ -144,8 +161,28 @@ async function scrape() {
     ...results,
   ].join('\n\n');
 
+  const { errors, seminars } = runSanityChecks(text);
+  if (errors.length > 0) {
+    console.error('❌ サニティチェック失敗。data.txt を更新しません:');
+    console.error(errors.join('\n'));
+    process.exit(1);
+  }
+
   fs.writeFileSync('data.txt', text);
+
+  // データ鮮度メタ(サーバが as-of 表示・staleness 判定に使う)
+  const nowMs = Date.now();
+  const future = seminars.filter((s) => Number.isFinite(s.endTimestamp) && s.endTimestamp >= nowMs);
+  fs.writeFileSync('freshness.json', JSON.stringify({
+    scrapedAtJST: new Date().toISOString(),
+    pageCount: results.length,
+    seminarCount: seminars.length,
+    futureCount: future.length,
+    latestFutureDate: future[0]?.dateLabel ?? null,
+  }, null, 2));
+
   console.log('✅ セミナー情報を data.txt に保存完了！');
+  console.log(`  セミナー ${seminars.length}件 / 今後の予定 ${future.length}件`);
   console.log('内容プレビュー:', text.substring(0, 200) + '...');
 
   if (failures.length > 0) {
