@@ -1,8 +1,8 @@
-name: Daily HP Update
+name: Weekly Seminar Update
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 毎日、日本時間の午前9時(UTC 0:00)に実行
+    - cron: '15 0 * * 1' # 毎週月曜日、日本時間09:15 (UTC 00:15)
   workflow_dispatch:      # GitHub上で手動実行できるボタンも追加
 
 # 約40日間 push が 403 で失敗し更新が止まっていた根本原因の修正:
@@ -12,42 +12,49 @@ permissions:
   issues: write
 
 concurrency:
-  group: daily-hp-update
+  group: weekly-seminar-update
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Test refresh safeguards
+        run: node --test tests/verify-weekly-refresh.mjs
 
       - name: Run Scrape
-        run: node scrape.js   # サニティNG時は exit 1 で停止し、壊れた data.txt で上書きしない
+        run: node scripts/scrape.js   # サニティNG時は exit 1 で停止し、保存データを上書きしない
 
       - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data.txt freshness.json
+          git add data/data.txt data/freshness.json
           if git diff --cached --quiet; then
             echo "差分なし。コミットをスキップします。"
             exit 0
           fi
-          # [skip ci] は必須(落とすと push が自分自身を再トリガし無限ループになる)
-          git commit -m "Auto-update HP info [skip ci]"
+          # このワークフローはpushをトリガーにしない。通常の自動デプロイを許可する。
+          git commit -m "Update seminar schedule snapshot"
           for i in 1 2 3; do
             git fetch origin main
-            git pull --rebase origin main && git push origin main && exit 0
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
             echo "push 失敗 (試行 $i / 3) — リトライします"
             sleep 5
           done
@@ -61,6 +68,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue create \
-            --title "⚠️ Daily HP Update が失敗 ($(date -u +%Y-%m-%d))" \
-            --body "Daily HP Update ワークフローが失敗しました。ログ: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --title "⚠️ Weekly Seminar Update が失敗 ($(date -u +%Y-%m-%d))" \
+            --body "Weekly Seminar Update ワークフローが失敗しました。ログ: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           || echo "issue 作成に失敗。ログを確認してください: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

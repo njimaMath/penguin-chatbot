@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildIndex, needsAbstractRetrieval, retrieveAbstracts } from "../search.js";
+import { buildIndex, needsAbstractRetrieval, retrieveAbstracts } from "../src/seminars/abstract-search.js";
 
 const next = {
   year: 2026, month: 11, day: 16, dateLabel: "2026年11月16日（月）", venue: "Room 002",

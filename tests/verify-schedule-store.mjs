@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createScheduleStore } from "../schedule-store.js";
+import { createScheduleStore } from "../src/seminars/store.js";
 
 const NOW = new Date("2026-11-16T01:00:00Z");
 const later = (milliseconds) => new Date(NOW.getTime() + milliseconds);

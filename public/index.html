@@ -85,6 +85,9 @@ body {
 .message.bot summary{cursor:pointer; color:#0a5cbf;}
 .abstract-original{margin-top:4px; color:#333; white-space:pre-wrap; line-height:1.5;}
 .source-note{margin-top:6px; font-size:0.85em; color:#4d6174;}
+.chat-actions{display:flex; justify-content:flex-end; margin-bottom:4px;}
+#new-chat-btn{border:0; background:transparent; color:#4d6174; font-size:12px; padding:2px 0; cursor:pointer;}
+#new-chat-btn:disabled{opacity:0.5; cursor:default;}
 #send-btn:disabled{background:#9bbad6; cursor:default;}
 .input-row { display:flex; width:100%; gap:clamp(6px, 2vw, 10px);}
 #user-input {flex:1; min-width:0; padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); box-sizing:border-box;}
@@ -112,6 +115,7 @@ body {
         </div>
         <div class="chat-column">
             <div class="chat-panel">
+            <div class="chat-actions"><button id="new-chat-btn" type="button">New chat / 新しい会話</button></div>
             <div id="chat"></div>
             <div class="input-row">
         <input type="text" id="user-input" placeholder="質問を入力…">
@@ -130,9 +134,75 @@ const mouth = document.getElementById('penguin-mouth');
 const chat = document.getElementById('chat');
 const input = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
+const newChatBtn = document.getElementById('new-chat-btn');
+const CONVERSATION_KEY = "penguin-chatbot:conversation:v1";
 let isSending = false;
 let mathJaxPromise = null;
 let warmupScheduled = false;
+let conversation = loadConversation();
+
+function storedTurn(turn){
+    if(!turn || !["user", "assistant"].includes(turn.role) || typeof turn.content !== "string" || !turn.content.trim()) return null;
+    const entry = { role: turn.role, content: turn.content };
+    if(Array.isArray(turn.sources)){
+        entry.sources = turn.sources.flatMap(source=>{
+            try{
+                const url = new URL(source.url);
+                if(!["http:", "https:"].includes(url.protocol) || url.username || url.password) return [];
+                return [{ url: url.href, title: typeof source.title === "string" ? source.title : url.hostname }];
+            }catch(_){ return []; }
+        });
+    }
+    if(Array.isArray(turn.abstract)) entry.abstract = turn.abstract.filter(item=>item && typeof item.original === "string").map(item=>({
+        original: item.original,
+        dateLabel: typeof item.dateLabel === "string" ? item.dateLabel : "",
+        title: typeof item.title === "string" ? item.title : "",
+        abstractMissing: Boolean(item.abstractMissing),
+    }));
+    if(typeof turn.checkedAt === "string") entry.checkedAt = turn.checkedAt;
+    if(["en", "ja"].includes(turn.language)) entry.language = turn.language;
+    return entry;
+}
+
+function loadConversation(){
+    try{
+        const saved = JSON.parse(window.sessionStorage.getItem(CONVERSATION_KEY) || "[]");
+        return Array.isArray(saved) ? saved.map(storedTurn).filter(Boolean) : [];
+    }catch(_){ return []; }
+}
+
+function persistConversation(){
+    try{ window.sessionStorage.setItem(CONVERSATION_KEY, JSON.stringify(conversation)); }
+    catch(_){ /* In-memory history still works when iframe storage is unavailable. */ }
+}
+
+function conversationHistory(turns = conversation){
+    return turns.map(turn=>{
+        const citations = (turn.sources || []).map(source=>`${source.title}: ${source.url}`).join("\n");
+        return { role: turn.role, content: turn.content + (citations ? `\nSources:\n${citations}` : "") };
+    });
+}
+
+function rememberMessage(role, content, metadata = {}){
+    const entry = storedTurn({ ...metadata, role, content });
+    if(!entry) return;
+    conversation.push(entry);
+    persistConversation();
+    return appendMessage(role === "assistant" ? "bot" : "user", content, entry.abstract, entry.sources, entry.checkedAt, entry.language || replyLanguage(content));
+}
+
+function restoreConversation(){
+    for(const turn of conversation) appendMessage(turn.role === "assistant" ? "bot" : "user", turn.content, turn.abstract, turn.sources, turn.checkedAt, turn.language || replyLanguage(turn.content));
+}
+
+function clearConversation(){
+    if(isSending) return;
+    window.MathJax?.typesetClear?.([chat]);
+    conversation = [];
+    chat.textContent = "";
+    try{ window.sessionStorage.removeItem(CONVERSATION_KEY); }catch(_){}
+    input.focus();
+}
 
 function getApiBase(){
     if(typeof window.PENGUIN_API_BASE === "string") return window.PENGUIN_API_BASE.trim().replace(/\/+$/u, "");
@@ -274,20 +344,21 @@ function appendMessage(role, text, abstracts, sources, checkedAt, language = "ja
     return div;
 }
 
-async function askChatGPT(message){
+async function askChatGPT(message, history = conversationHistory()){
     const controller = new AbortController();
     const timer = setTimeout(()=>controller.abort(), 60000);  // フォールバック無し方針=60s
     try{
         const res = await fetch(apiUrl("/chat"),{
             method:"POST",
             headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({message}),
+            body:JSON.stringify({message, history}),
             signal: controller.signal,
         });
         if(!res.ok){
             const data = await res.json().catch(()=>({}));
             const err = new Error(data.error || `HTTP ${res.status}`);
             err.status = res.status;
+            if(typeof data.reply === "string") err.userReply = data.reply;
             throw err;
         }
         return await res.json();
@@ -301,8 +372,10 @@ async function handleSend(){
     const message = input.value.trim();
     if(!message) return;
     const language = replyLanguage(message);
-    isSending = true; sendBtn.disabled = true;
-    appendMessage("user", message);
+    const retry = conversation.at(-1)?.role === "user" && conversation.at(-1).content === message;
+    const history = conversationHistory(retry ? conversation.slice(0, -1) : conversation);
+    isSending = true; sendBtn.disabled = true; newChatBtn.disabled = true;
+    if(!retry) rememberMessage("user", message);
     input.value = "";
     mouth.classList.add('mouth-moving');          // 応答が返るまで口パク継続(固定3秒タイマー廃止)
 
@@ -310,34 +383,36 @@ async function handleSend(){
     const slowTimer = setTimeout(()=>{ typing.textContent = language === "en" ? "Still working on your question…" : "もう少し待っててね…"; }, 3000);
 
     try{
-        const data = await askChatGPT(message);
+        const data = await askChatGPT(message, history);
         clearTimeout(slowTimer);
         typing.remove();
-        appendMessage("bot", data.reply || (language === "en" ? "I couldn't produce an answer. Please try again." : "うまくお返事できなかったの。ごめんね。"), data.abstract, data.sources, data.checkedAt, data.language || language);
+        rememberMessage("assistant", data.reply || (language === "en" ? "I couldn't produce an answer. Please try again." : "うまくお返事できなかったの。ごめんね。"), { abstract: data.abstract, sources: data.sources, checkedAt: data.checkedAt, language: data.language || language });
     }catch(e){
         clearTimeout(slowTimer);
         typing.remove();
-        const msg = language === "en"
+        const msg = e.userReply || (language === "en"
             ? (e.name === "AbortError" ? "The reply took too long. Please try again." : "I couldn't send your question. Please try again shortly.")
             : (e.name === "AbortError")
             ? "ごめんね、お返事に時間がかかりすぎちゃったみたい。もう一度試してね。"
-            : "ごめんね、うまくお返事できなかったの。少し時間をおいて試してね。";
+            : "ごめんね、うまくお返事できなかったの。少し時間をおいて試してね。");
         appendMessage("bot", msg);
         console.error(e);                          // 生エラーは画面に出さずログのみ
     }finally{
         mouth.classList.remove('mouth-moving');
-        isSending = false; sendBtn.disabled = false;
+        isSending = false; sendBtn.disabled = false; newChatBtn.disabled = false;
         input.focus();
     }
 }
 
 sendBtn.addEventListener("click", handleSend);
+newChatBtn.addEventListener("click", clearConversation);
 input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     if (e.isComposing || e.keyCode === 229) return;
     handleSend();
 });
 
+restoreConversation();
 scheduleBackendWarmup();
 </script>
 </body>

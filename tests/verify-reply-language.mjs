@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detectReplyLanguage, getTokyoNowParts, buildCurrentDateTimeReply, buildNextSeminarReply } from "../reply-language.js";
+import { detectReplyLanguage, getTokyoNowParts, buildCurrentDateTimeReply, buildNextSeminarReply } from "../src/chat/reply-language.js";
 
 const current = {
   year: 2026, month: 11, day: 16, dateLabel: "2026年11月16日（月）",

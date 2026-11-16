@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildChatSystemPrompt } from "../chat-policy.js";
+import { buildChatSystemPrompt } from "../src/chat/policy.js";
 
 test("English and Japanese responses follow the chosen language rather than the source language", () => {
   const english = buildChatSystemPrompt({ language: "en", memo: "講師は未掲載" });
@@ -51,6 +51,20 @@ test("research can use real web evidence without exposing empty seminar metadata
   assert.match(prompt, /Current date in Japan: 2026-11-16/u);
   assert.doesNotMatch(prompt, /Source facts \(JSON/u);
   assert.doesNotMatch(prompt, /No live web search is included/u);
+});
+
+test("mathematical people and seminar access use primary sources within a professional scope", () => {
+  const prompt = buildChatSystemPrompt({ webSearch: true });
+  assert.match(prompt, /People in scope are mathematicians and seminar participants/u);
+  assert.match(prompt, /public professional profiles, affiliations, research, publications/u);
+  assert.match(prompt, /Do not assume an arbitrary named person is a mathematician/u);
+  assert.match(prompt, /First establish the person's mathematical or seminar connection from retrieved primary sources/u);
+  assert.match(prompt, /If that connection cannot be established, decline the unrelated biography briefly/u);
+  assert.match(prompt, /Decline unrelated political or celebrity profiles and private home addresses/u);
+  assert.match(prompt, /official university profiles, official venue pages, and transport operators/u);
+  assert.match(prompt, /current official seminar page is authoritative for seminar dates, times, speakers, and rooms/u);
+  assert.match(prompt, /cannot override it/u);
+  assert.match(prompt, /at most 100 words/u);
 });
 
 test("memo and abstract text stay intact as untrusted source data", () => {

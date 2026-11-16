@@ -7,9 +7,19 @@ const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "
 const inlineScripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu)]
   .filter((match) => !/\bsrc\s*=/iu.test(match[1])).map((match) => match[2]).join("\n");
 const API_BASE = "https://penguin-chatbot-5mee.onrender.com";
+const CONVERSATION_KEY = "penguin-chatbot:conversation:v1";
 const flush = async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); };
 
-function browser({ url = "https://embed.example.org/seminar", override, fetchImpl } = {}) {
+function sessionStorage(initial = {}) {
+  const entries = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => entries.get(key) ?? null,
+    setItem: (key, value) => entries.set(key, String(value)),
+    removeItem: (key) => entries.delete(key),
+  };
+}
+
+function browser({ url = "https://embed.example.org/seminar", override, fetchImpl, storage = sessionStorage() } = {}) {
   const elements = new Map();
   const createdScripts = [];
   const requests = [];
@@ -42,6 +52,12 @@ function browser({ url = "https://embed.example.org/seminar", override, fetchImp
       if (child.tagName === "SCRIPT") createdScripts.push(child);
       return child;
     }
+    replaceChildren(...children) {
+      this.text = "";
+      for (const child of this.childNodes) child.parentNode = null;
+      this.childNodes = [];
+      for (const child of children) this.appendChild(child);
+    }
     removeChild(child) {
       const index = this.childNodes.indexOf(child);
       if (index >= 0) this.childNodes.splice(index, 1);
@@ -67,7 +83,7 @@ function browser({ url = "https://embed.example.org/seminar", override, fetchImp
     focus() { this.focused = true; }
   }
 
-  for (const [id, tag] of [["penguin-mouth", "img"], ["chat", "div"], ["user-input", "input"], ["send-btn", "button"]]) {
+  for (const [id, tag] of [["penguin-mouth", "img"], ["chat", "div"], ["user-input", "input"], ["send-btn", "button"], ["new-chat-btn", "button"]]) {
     const element = new Element(tag);
     element.id = id;
   }
@@ -79,6 +95,7 @@ function browser({ url = "https://embed.example.org/seminar", override, fetchImp
   };
   const sandbox = {
     document,
+    sessionStorage: storage,
     location: new URL(url),
     URL, AbortController, Date, Intl,
     console: { error() {}, warn() {}, log() {} },
@@ -96,7 +113,7 @@ function browser({ url = "https://embed.example.org/seminar", override, fetchImp
   vm.runInContext(inlineScripts, context, { filename: "public/index.html", timeout: 1000 });
 
   return {
-    context, document, elements, createdScripts, requests, timers,
+    context, document, elements, createdScripts, requests, timers, storage,
     frame() { const batch = frames.splice(0); for (const callback of batch) callback(0); },
     fireTimers(predicate) {
       for (const [id, timer] of [...timers]) {
@@ -270,4 +287,153 @@ test("external paper citations remain clickable without loading math or injectin
     assert.ok(link.rel.includes("noopener") && link.rel.includes("noreferrer"));
   }
   assert.equal(page.createdScripts.length, 0);
+});
+
+test("each request includes completed earlier turns and source URLs but not its current question or status text", async () => {
+  const source = { title: "A mathematical paper", url: "https://arxiv.org/abs/2601.01234" };
+  const replies = [
+    { reply: "The paper constructs a stochastic process.", sources: [source], language: "en" },
+    { reply: "Here is an explanation of that process.", language: "en" },
+  ];
+  const page = browser({ fetchImpl: async () => ({ ok: true, json: async () => replies.shift() }) });
+  page.elements.get("user-input").value = "Tell me about this mathematical paper.";
+  await page.context.handleSend();
+  const first = JSON.parse(page.requests[0].options.body);
+  assert.deepEqual(first, { message: "Tell me about this mathematical paper.", history: [] });
+  const saved = JSON.parse(page.storage.getItem(CONVERSATION_KEY));
+  assert.deepEqual(saved.map((message) => message.role), ["user", "assistant"]);
+  assert.equal(saved[1].content, "The paper constructs a stochastic process.");
+  assert.deepEqual(saved[1].sources, [source]);
+
+  page.elements.get("user-input").value = "Who constructed it?";
+  await page.context.handleSend();
+  const second = JSON.parse(page.requests[1].options.body);
+  assert.equal(second.message, "Who constructed it?");
+  assert.equal(second.history.length, 2);
+  assert.deepEqual(second.history.map((message) => message.role), ["user", "assistant"]);
+  assert.equal(second.history[0].content, first.message);
+  assert.ok(second.history[1].content.includes("The paper constructs a stochastic process."));
+  assert.ok(second.history[1].content.includes(source.url));
+  assert.doesNotMatch(JSON.stringify(second.history), /Who constructed it\?|Thinking|Still working|考え中/u);
+  assert.equal(JSON.parse(page.storage.getItem(CONVERSATION_KEY)).length, 4);
+});
+
+test("reload restores the current tab transcript and citation metadata without sharing it with another tab", async () => {
+  const storage = sessionStorage({ [CONVERSATION_KEY]: JSON.stringify([
+    { role: "user", content: "Which paper discusses this process?" },
+    { role: "assistant", content: "This paper discusses it.", language: "en",
+      sources: [{ title: "The paper", url: "https://arxiv.org/abs/2601.01234" }], checkedAt: "2026-11-16T01:00:00Z",
+      abstract: [{ original: "The original abstract describes the construction.", dateLabel: "2026年11月16日", abstractMissing: false }] },
+  ]) });
+  const restored = browser({ storage });
+  const chat = restored.elements.get("chat");
+  assert.equal(chat.childNodes.length, 2);
+  assert.ok(chat.textContent.includes("Which paper discusses this process?"));
+  assert.ok(chat.textContent.includes("This paper discusses it."));
+  assert.ok(chat.textContent.includes("The original abstract describes the construction."));
+  const links = descendants(chat).filter((element) => element.tagName === "A");
+  assert.equal(links.length, 1);
+  assert.equal(links[0].href, "https://arxiv.org/abs/2601.01234");
+  assert.equal(links[0].textContent, "The paper");
+  assert.equal(restored.requests.length, 0);
+  assert.equal(JSON.parse(storage.getItem(CONVERSATION_KEY)).length, 2);
+  restored.elements.get("user-input").value = "Explain that result.";
+  await restored.context.handleSend();
+  const followup = JSON.parse(restored.requests[0].options.body);
+  assert.equal(followup.history.length, 2);
+  assert.ok(followup.history[1].content.includes(links[0].href));
+
+  const separate = browser();
+  assert.equal(separate.elements.get("chat").textContent, "");
+  separate.elements.get("user-input").value = "Explain a martingale.";
+  await separate.context.handleSend();
+  assert.deepEqual(JSON.parse(separate.requests[0].options.body).history, []);
+});
+
+test("unavailable or corrupt session storage leaves conversation memory working in the open tab", async () => {
+  const denied = () => { throw new Error("Storage access denied"); };
+  for (const storage of [
+    { getItem: denied, setItem: denied, removeItem: denied },
+    sessionStorage({ [CONVERSATION_KEY]: "{invalid JSON" }),
+  ]) {
+    const page = browser({ storage });
+    assert.equal(page.elements.get("send-btn").disabled, false);
+    assert.equal(page.elements.get("chat").textContent, "");
+    page.elements.get("user-input").value = "Explain expectation.";
+    await page.context.handleSend();
+    page.elements.get("user-input").value = "Give an example.";
+    await page.context.handleSend();
+    const followup = JSON.parse(page.requests[1].options.body);
+    assert.equal(followup.history.length, 2);
+    assert.equal(followup.history[0].content, "Explain expectation.");
+    assert.equal(followup.history[1].content, "A short answer.");
+    assert.equal(page.elements.get("send-btn").disabled, false);
+    page.elements.get("new-chat-btn").emit("click");
+    assert.equal(page.elements.get("chat").textContent, "");
+  }
+});
+
+test("a longer saved chat sends its first and most recent turns without silently forgetting old messages", async () => {
+  const messages = Array.from({ length: 40 }, (_, index) => [
+    { role: "user", content: `Mathematical question ${index + 1}` },
+    { role: "assistant", content: `Mathematical answer ${index + 1}`, language: "en" },
+  ]).flat();
+  const page = browser({ storage: sessionStorage({ [CONVERSATION_KEY]: JSON.stringify(messages) }) });
+  assert.equal(page.elements.get("chat").childNodes.length, 80);
+  page.elements.get("user-input").value = "Compare the first result with the last one.";
+  await page.context.handleSend();
+  const request = JSON.parse(page.requests[0].options.body);
+  assert.equal(request.history.length, 80);
+  assert.deepEqual(request.history[0], messages[0]);
+  assert.equal(request.history.at(-1).content, messages.at(-1).content);
+});
+
+test("network failures do not enter assistant memory and retrying the same question does not duplicate its user turn", async () => {
+  let attempt = 0;
+  const page = browser({ fetchImpl: async () => {
+    if (++attempt === 1) throw new TypeError("Offline");
+    return { ok: true, json: async () => ({ reply: "Expectation is linear.", language: "en" }) };
+  } });
+  const question = "Explain linearity of expectation.";
+  page.elements.get("user-input").value = question;
+  await page.context.handleSend();
+  const failed = JSON.parse(page.storage.getItem(CONVERSATION_KEY));
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].role, "user");
+  assert.equal(failed[0].content, question);
+  assert.ok(page.elements.get("chat").textContent.includes("couldn't send your question"));
+
+  page.elements.get("user-input").value = question;
+  await page.context.handleSend();
+  const retried = JSON.parse(page.requests[1].options.body);
+  assert.equal(retried.message, question);
+  assert.deepEqual(retried.history, []);
+  const saved = JSON.parse(page.storage.getItem(CONVERSATION_KEY));
+  assert.deepEqual(saved.map((message) => message.role), ["user", "assistant"]);
+  assert.equal(saved[1].content, "Expectation is linear.");
+  assert.doesNotMatch(JSON.stringify(saved), /Offline|couldn't send your question|Thinking/u);
+  assert.equal(page.elements.get("chat").childNodes.filter((element) => element.className === "message user").length, 1);
+});
+
+test("new chat is disabled while a reply is pending and clears only this tab's completed conversation", async () => {
+  let complete;
+  const page = browser({ fetchImpl: () => new Promise((resolve) => { complete = resolve; }) });
+  page.elements.get("user-input").value = "Explain a martingale.";
+  const sending = page.context.handleSend();
+  await flush();
+  assert.equal(page.elements.get("new-chat-btn").disabled, true);
+  complete({ ok: true, json: async () => ({ reply: "A martingale has constant conditional expectation.", language: "en" }) });
+  await sending;
+  assert.equal(page.elements.get("new-chat-btn").disabled, false);
+  assert.equal(JSON.parse(page.storage.getItem(CONVERSATION_KEY)).length, 2);
+  page.elements.get("new-chat-btn").emit("click");
+  assert.equal(page.elements.get("chat").textContent, "");
+  assert.ok(page.storage.getItem(CONVERSATION_KEY) === null || JSON.parse(page.storage.getItem(CONVERSATION_KEY)).length === 0);
+  page.elements.get("user-input").value = "What is expectation?";
+  const waiting = page.context.handleSend();
+  await flush();
+  const request = JSON.parse(page.requests.at(-1).options.body);
+  assert.deepEqual(request.history, []);
+  complete({ ok: true, json: async () => ({ reply: "A weighted average.", language: "en" }) });
+  await waiting;
 });

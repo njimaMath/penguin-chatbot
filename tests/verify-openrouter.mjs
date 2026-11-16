@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { callOpenRouter, DEFAULT_MODEL, getOpenRouterModel } from "../openrouter.js";
+import { callOpenRouter, DEFAULT_MODEL, getOpenRouterModel } from "../src/services/openrouter.js";
 
 const env = { OPENROUTER_API_KEY: " test-api-key " };
 const success = (content = "回答だよ。") => ({
@@ -22,7 +22,7 @@ test("model defaults to the verified snapshot and accepts a trimmed override", (
   assert.equal(getOpenRouterModel({ OPENROUTER_MODEL: " deepseek/custom-model " }), "deepseek/custom-model");
 });
 
-test("requests low reasoning within a concise budget and returns only the answer", async () => {
+test("requests medium reasoning with room for a short visible answer and returns only that answer", async () => {
   let calls = 0;
   const reply = await callOpenRouter("Use the seminar facts.", "会場は？", {
     env,
@@ -33,8 +33,8 @@ test("requests low reasoning within a concise budget and returns only the answer
       assert.equal(options.headers.Authorization, "Bearer test-api-key");
       const body = JSON.parse(options.body);
       assert.equal(body.model, DEFAULT_MODEL);
-      assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
-      assert.equal(body.max_tokens, 1000);
+      assert.deepEqual(body.reasoning, { effort: "medium", exclude: true });
+      assert.equal(body.max_tokens, 2000);
       assert.equal(body.temperature, 0.2);
       assert.deepEqual(body.messages, [
         { role: "system", content: "Use the seminar facts." },

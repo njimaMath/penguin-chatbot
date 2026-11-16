@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseSeminarSchedule, getNextSeminar, buildCompactMemo } from "../memo.js";
-import { buildIndex } from "../search.js";
+import { parseSeminarSchedule, getNextSeminar, buildCompactMemo } from "../src/seminars/schedule.js";
+import { buildIndex } from "../src/seminars/abstract-search.js";
 
 const schedule = `今後の予定
 2026年1 1月9日（月）

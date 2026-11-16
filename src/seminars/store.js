@@ -1,4 +1,4 @@
-import { fetchCurrentSchedule, mergeCurrentSchedule, OFFICIAL_URL } from "./site-source.js";
+import { fetchCurrentSchedule, mergeCurrentSchedule, OFFICIAL_URL } from "./source.js";
 
 // Refresh current-year information independently of the archived GitHub snapshot.
 export function createScheduleStore({

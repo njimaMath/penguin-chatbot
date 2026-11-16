@@ -1,4 +1,9 @@
+import { extractWebSources, webSearchPlugin } from "../chat/web-search.js";
+import { sanitizeConversationHistory } from "../chat/conversation-history.js";
+
 export const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017";
+export const REASONING_EFFORT = "medium";
+export const MAX_COMPLETION_TOKENS = 2000;
 
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const SITE_URL = "https://sites.google.com/view/tokyo-probability-seminar23";
@@ -23,7 +28,8 @@ export async function callOpenRouterWithSources(systemContent, userMessage, {
   fetchImpl = globalThis.fetch,
   webSearch = false,
   timeoutMs = webSearch ? 45000 : 20000,
-  maxTokens = 1000,
+  maxTokens = MAX_COMPLETION_TOKENS,
+  history = [],
 } = {}) {
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
@@ -32,9 +38,12 @@ export async function callOpenRouterWithSources(systemContent, userMessage, {
     model: getOpenRouterModel(env),
     temperature: 0.2,
     max_tokens: maxTokens,
-    reasoning: { effort: "low", exclude: true },
+    // DeepSeek accepts "medium" as a compatibility level mapped to native "high":
+    // https://api-docs.deepseek.com/guides/thinking_mode/
+    reasoning: { effort: REASONING_EFFORT, exclude: true },
     messages: [
       { role: "system", content: systemContent },
+      ...sanitizeConversationHistory(history),
       { role: "user", content: userMessage },
     ],
     ...(webSearch ? { plugins: [webSearchPlugin()] } : {}),
@@ -97,9 +106,6 @@ export async function callOpenRouterWithSources(systemContent, userMessage, {
   }
   throw lastError;
 }
-import { extractWebSources, webSearchPlugin } from "./web-search.js";
-
-
 export async function callOpenRouter(...args) {
   return (await callOpenRouterWithSources(...args)).reply;
 }

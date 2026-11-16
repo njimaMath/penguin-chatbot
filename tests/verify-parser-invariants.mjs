@@ -1,9 +1,9 @@
 // LLM非依存: パーサ/メモの不変条件を実データ(data.txt)で検証する。
 import fs from "fs";
-import { parseSeminarSchedule, buildCompactMemo } from "../memo.js";
-import { buildIndex } from "../search.js";
+import { parseSeminarSchedule, buildCompactMemo } from "../src/seminars/schedule.js";
+import { buildIndex } from "../src/seminars/abstract-search.js";
 
-const text = fs.readFileSync(new URL("../data.txt", import.meta.url), "utf-8");
+const text = fs.readFileSync(new URL("../data/data.txt", import.meta.url), "utf-8");
 const seminars = parseSeminarSchedule(text);
 const allTalks = seminars.flatMap((s) => s.talks);
 const NOW = new Date("2026-06-01T01:00:00Z");

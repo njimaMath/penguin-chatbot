@@ -1,2 +1,2 @@
 # 現在の本番運用では Python スクリプトは未使用です。
-# データ更新は GitHub Actions から `node scrape.js` を実行して行っています。
+# データ更新は GitHub Actions から `node scripts/scrape.js` を実行して行っています。

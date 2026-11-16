@@ -61,7 +61,7 @@ test("static frontend remains available independently of the cross-origin chat b
       assert.equal($('img[src="mouth.png"]').length, 1);
     });
 
-    const { app } = await import("../server.js");
+    const { app } = await import("../src/app.js");
     backend = createServer(app);
     await listen(backend);
     const backendOrigin = `http://127.0.0.1:${backend.address().port}`;

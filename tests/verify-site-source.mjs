@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as cheerio from "cheerio";
-import { parseSeminarSchedule } from "../memo.js";
+import { parseSeminarSchedule } from "../src/seminars/schedule.js";
 import {
   OFFICIAL_URL, getCurrentScheduleUrl, extractSections,
   fetchCurrentSchedule, mergeCurrentSchedule,
-} from "../site-source.js";
+} from "../src/seminars/source.js";
 
 const now = new Date("2026-11-16T01:00:00Z");
 const talk = (date, speaker, venue = "東京大学数理科学研究科122号室") => (

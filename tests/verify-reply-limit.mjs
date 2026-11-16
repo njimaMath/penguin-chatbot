@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_REPLY_WORDS, limitReplyWords, wordCount } from "../reply-limit.js";
+import { MAX_REPLY_WORDS, limitReplyWords, wordCount } from "../src/chat/reply-limit.js";
 
 test("English replies default to 100 words without another model request", () => {
   assert.equal(MAX_REPLY_WORDS, 100);

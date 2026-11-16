@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isNextSeminarQuestion } from "../schedule-intent.js";
+import { isNextSeminarQuestion } from "../src/seminars/intent.js";
 
 test("generic upcoming schedule questions use the deterministic route in both languages", () => {
   const questions = [

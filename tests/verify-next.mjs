@@ -1,8 +1,8 @@
 // LLM非依存: 「次回」決定論ロジックを検証する(過去を未来と言わない=最重要GO基準)。
 import fs from "fs";
-import { parseSeminarSchedule, getNextSeminar } from "../memo.js";
+import { parseSeminarSchedule, getNextSeminar } from "../src/seminars/schedule.js";
 
-const text = fs.readFileSync(new URL("../data.txt", import.meta.url), "utf-8");
+const text = fs.readFileSync(new URL("../data/data.txt", import.meta.url), "utf-8");
 const seminars = parseSeminarSchedule(text);
 
 let fail = 0;

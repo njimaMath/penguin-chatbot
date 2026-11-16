@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { parseSeminarSchedule } from "./memo.js";
+import { parseSeminarSchedule } from "./schedule.js";
 
 export const OFFICIAL_URL = "https://sites.google.com/view/tokyo-probability-seminar23";
 

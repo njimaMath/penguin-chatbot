@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { callOpenRouter, callOpenRouterWithSources } from "../openrouter.js";
+import { callOpenRouter, callOpenRouterWithSources } from "../src/services/openrouter.js";
 
 const env = { OPENROUTER_API_KEY: "test-api-key" };
 const citation = (url, title) => ({ type: "url_citation", url_citation: { url, title } });
@@ -18,8 +18,8 @@ test("research requests enable the bounded web plugin and return verified citati
     fetchImpl: async (_url, options) => {
       calls += 1;
       const body = JSON.parse(options.body);
-      assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
-      assert.equal(body.max_tokens, 1000);
+      assert.deepEqual(body.reasoning, { effort: "medium", exclude: true });
+      assert.equal(body.max_tokens, 2000);
       assert.equal(body.plugins.length, 1);
       const plugin = body.plugins[0];
       assert.equal(plugin.id, "web");
@@ -52,8 +52,8 @@ test("ordinary replies omit the plugin and the string wrapper remains compatible
   const fetchImpl = async (_url, options) => {
     const body = JSON.parse(options.body);
     assert.equal(body.plugins, undefined);
-    assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
-    assert.equal(body.max_tokens, 1000);
+    assert.deepEqual(body.reasoning, { effort: "medium", exclude: true });
+    assert.equal(body.max_tokens, 2000);
     return success("  2  ");
   };
   assert.deepEqual(await callOpenRouterWithSources("Answer the math question.", "1+1?", { env, fetchImpl }), {
