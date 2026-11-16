@@ -11,6 +11,7 @@ import {
   normalizeText,
 } from "./memo.js";
 import { buildIndex, retrieveAbstracts, needsAbstractRetrieval } from "./search.js";
+import { callOpenRouter, getOpenRouterModel } from "./openrouter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,8 +20,6 @@ const TOKYO_TIME_ZONE = "Asia/Tokyo";
 const dataFilePath = path.join(__dirname, "data.txt");
 const freshnessFilePath = path.join(__dirname, "freshness.json");
 const OFFICIAL_URL = "https://sites.google.com/view/tokyo-probability-seminar23";
-const MODEL = "google/gemini-2.5-flash-lite";
-const TIMEOUT_MS = 20000;
 
 const BURIKKO_SYSTEM_PROMPT = [
   "あなたはアシスタントのピーチャンです。",
@@ -146,56 +145,8 @@ app.use(express.static("public"));
 
 console.log("--- サーバー起動チェック ---");
 console.log("PORT:", process.env.PORT);
-console.log("APIキー(頭5文字):", process.env.OPENROUTER_API_KEY ? process.env.OPENROUTER_API_KEY.slice(0, 5) : "設定されていません！");
-
-// OpenRouter 呼び出し: タイムアウト + 1回リトライ(429/5xx/timeout/network)。4xxは即失敗。
-async function callOpenRouter(systemContent, userMessage) {
-  const MAX_ATTEMPTS = 2; // primary + retry1（フォールバックモデル未確認のため無し）
-  let lastError;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://render.com",
-          "X-Title": "Penguin Chatbot",
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          temperature: 0.2,
-          max_tokens: 600,
-          messages: [
-            { role: "system", content: systemContent },
-            { role: "user", content: userMessage },
-          ],
-        }),
-      });
-      clearTimeout(timer);
-      const data = await response.json();
-      if (!response.ok) {
-        const msg = data?.error?.message || `OpenRouter API error: ${response.status}`;
-        // 4xx(429以外)はリトライしても無駄
-        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-          throw new Error(msg);
-        }
-        lastError = new Error(msg);
-        continue;
-      }
-      return data?.choices?.[0]?.message?.content?.trim() || "";
-    } catch (error) {
-      clearTimeout(timer);
-      lastError = error;
-      // 明示的な4xxは再試行しない
-      if (/OpenRouter API error: 4(?!29)/.test(error.message)) throw error;
-    }
-  }
-  throw lastError || new Error("OpenRouter 呼び出しに失敗しました");
-}
+console.log("OpenRouter model:", getOpenRouterModel());
+console.log("APIキー:", process.env.OPENROUTER_API_KEY?.trim() ? "設定済み" : "設定されていません！");
 
 app.post("/chat", async (req, res) => {
   const userMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
@@ -257,6 +208,7 @@ app.post("/chat", async (req, res) => {
 app.get("/health", (req, res) => {
   const meta = freshnessMeta();
   res.json({
+    model: getOpenRouterModel(),
     seminarCount: seminars.length,
     abstractCount: searchIndex.corpus.length,
     dataAsOf: meta.dataAsOf,

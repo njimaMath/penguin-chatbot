@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "scrape": "node scrape.js",
-    "test": "node test/verify-parser-invariants.mjs && node test/verify-next.mjs"
+    "test": "node test/verify-parser-invariants.mjs && node test/verify-next.mjs && node --test test/verify-openrouter.mjs"
   },
   "engines": {
     "node": ">=18.0.0"
