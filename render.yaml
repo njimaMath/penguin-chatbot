@@ -1,0 +1,11 @@
+# This Blueprint manages the static frontend only.
+services:
+  - type: web
+    name: penguin-chatbot-ui
+    runtime: static
+    branch: main
+    buildCommand: echo "Publishing static chatbot files"
+    staticPublishPath: ./public
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"

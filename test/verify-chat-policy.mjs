@@ -19,8 +19,8 @@ test("mathematics is allowed beyond seminar facts while logistical details remai
   assert.match(prompt, /Do not refuse a mathematical question just because/u);
   assert.match(prompt, /State necessary assumptions and define symbols/u);
   assert.match(prompt, /short correct argument/u);
-  assert.match(prompt, /at most 200 words/u);
-  assert.match(prompt, /including mathematical explanations and proofs, must remain within 200 words/u);
+  assert.match(prompt, /at most 100 words/u);
+  assert.match(prompt, /including mathematical explanations and proofs, must remain within 100 words/u);
   assert.match(prompt, /Never present a past seminar as the next seminar/u);
   assert.match(prompt, /venue locations and access directions, seminar history, organizers/u);
   assert.match(prompt, /Do not refuse these as unrelated travel/u);

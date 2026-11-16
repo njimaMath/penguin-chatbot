@@ -17,7 +17,7 @@ import { isNextSeminarQuestion } from "./schedule-intent.js";
 import { buildChatSystemPrompt } from "./chat-policy.js";
 import { detectReplyLanguage, getTokyoNowParts, buildCurrentDateTimeReply, buildNextSeminarReply } from "./reply-language.js";
 import { shouldSearchWeb } from "./web-search.js";
-import { limitReplyWords } from "./reply-limit.js";
+import { limitReplyWords, MAX_REPLY_WORDS } from "./reply-limit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -201,7 +201,7 @@ app.get("/health", (req, res) => {
   res.json({
     model: getOpenRouterModel(),
     reasoningEffort: "low",
-    maxReplyWords: 200,
+    maxReplyWords: MAX_REPLY_WORDS,
     webSearch: { engine: "parallel", mode: "turbo", maxResults: 3 },
     seminarCount: seminars.length,
     abstractCount: searchIndex.corpus.length,

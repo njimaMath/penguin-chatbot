@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "scrape": "node scrape.js",
-    "test": "node test/verify-parser-invariants.mjs && node test/verify-next.mjs && node --test test/verify-openrouter.mjs test/verify-schedule-parsing.mjs test/verify-schedule-intent.mjs test/verify-site-source.mjs test/verify-schedule-store.mjs test/verify-reply-language.mjs test/verify-chat-policy.mjs test/verify-chat-routes.mjs test/verify-abstract-retrieval.mjs test/verify-web-search.mjs test/verify-openrouter-search.mjs test/verify-reply-limit.mjs"
+    "test": "node test/verify-parser-invariants.mjs && node test/verify-next.mjs && node --test test/verify-openrouter.mjs test/verify-schedule-parsing.mjs test/verify-schedule-intent.mjs test/verify-site-source.mjs test/verify-schedule-store.mjs test/verify-reply-language.mjs test/verify-chat-policy.mjs test/verify-chat-routes.mjs test/verify-abstract-retrieval.mjs test/verify-web-search.mjs test/verify-openrouter-search.mjs test/verify-reply-limit.mjs test/verify-frontend-loading.mjs test/verify-static-hosting.mjs"
   },
   "engines": {
     "node": ">=18.0.0"

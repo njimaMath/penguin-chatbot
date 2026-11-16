@@ -4,14 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Penguin Chatbot</title>
-<script>
-window.MathJax = {
-    loader: { load: ["ui/safe"] },
-    tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"]], processEscapes: true },
-    options: { safeOptions: { allow: { URLs: "none", classes: "none", cssIDs: "none", styles: "none" } } },
-};
-</script>
-<script id="mathjax-script" defer src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-chtml.js"></script>
 <style>
 body {
     --page-gutter: clamp(8px, 3vw, 16px);
@@ -139,22 +131,77 @@ const chat = document.getElementById('chat');
 const input = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 let isSending = false;
+let mathJaxPromise = null;
+let warmupScheduled = false;
+
+function getApiBase(){
+    if(typeof window.PENGUIN_API_BASE === "string") return window.PENGUIN_API_BASE.trim().replace(/\/+$/u, "");
+    return ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
+        ? "" : "https://penguin-chatbot-5mee.onrender.com";
+}
+
+function apiUrl(path){
+    return `${getApiBase()}/${path.replace(/^\/+/, "")}`;
+}
+
+function scheduleBackendWarmup(){
+    if(warmupScheduled) return;
+    warmupScheduled = true;
+    if(new URL(apiUrl("/health"), window.location.origin).origin === window.location.origin) return;
+    const wake = ()=>{
+        const controller = new AbortController();
+        const timer = setTimeout(()=>controller.abort(), 75000);
+        fetch(apiUrl("/health"), { method: "GET", signal: controller.signal, cache: "no-store", credentials: "omit" })
+            .catch(()=>{})
+            .finally(()=>clearTimeout(timer));
+    };
+    // Allow the widget to paint before waking the independent API service.
+    requestAnimationFrame(()=>requestAnimationFrame(wake));
+}
 
 function replyLanguage(message){
     if(/^\s*(?:(?:please|can you|could you|would you)\s+)?(?:what|when|where|who|why|how|tell|show|explain|prove|define|compute|calculate)\b/iu.test(message)) return "en";
     return /[\u3040-\u30ff]/u.test(message) || (/[\u3400-\u9fff]/u.test(message) && !/[a-z]{2,}/iu.test(message)) ? "ja" : "en";
 }
 
-function renderMath(element){
-    if(window.MathJax?.typesetPromise){
-        window.MathJax.typesetPromise([element]).then(()=>{
-            chat.scrollTop = chat.scrollHeight;
-        }).catch(error=>console.error("Math rendering failed", error));
-    }
+function ensureMathJax(){
+    if(mathJaxPromise) return mathJaxPromise;
+    window.MathJax = {
+        loader: { load: ["ui/safe"] },
+        tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"]], processEscapes: true },
+        options: { safeOptions: { allow: { URLs: "none", classes: "none", cssIDs: "none", styles: "none" } } },
+        startup: { typeset: false },
+    };
+    const script = document.createElement("script");
+    script.id = "mathjax-script";
+    script.async = true;
+    script.src = "https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-chtml.js";
+    let timer;
+    const loading = new Promise((resolve, reject)=>{
+        timer = setTimeout(()=>reject(new Error("MathJax loading timed out")), 20000);
+        script.onerror = ()=>reject(new Error("MathJax could not be loaded"));
+        script.onload = ()=>{
+            Promise.resolve(window.MathJax.startup?.promise).then(()=>{
+                if(typeof window.MathJax.typesetPromise !== "function") throw new Error("MathJax did not initialize");
+                resolve(window.MathJax);
+            }).catch(reject);
+        };
+        document.head.appendChild(script);
+    });
+    mathJaxPromise = loading.finally(()=>clearTimeout(timer)).catch(error=>{
+        script.remove();
+        mathJaxPromise = null;
+        throw error;
+    });
+    return mathJaxPromise;
 }
-document.getElementById("mathjax-script").addEventListener("load", ()=>{
-    window.MathJax.startup.promise.then(()=>renderMath(chat));
-});
+
+function renderMath(element){
+    if(!/(^|[^\\])(?:\\\\)*\$/u.test(element.textContent || "")) return Promise.resolve();
+    return ensureMathJax().then(mathJax=>mathJax.typesetPromise([element])).then(()=>{
+        chat.scrollTop = chat.scrollHeight;
+    }).catch(error=>console.error("Math rendering failed", error));
+}
 
 // 本文を安全に描画(URLだけ<a>化、それ以外はtextNode=XSS防止)
 function appendLinkedText(parent, text){
@@ -231,7 +278,7 @@ async function askChatGPT(message){
     const controller = new AbortController();
     const timer = setTimeout(()=>controller.abort(), 60000);  // フォールバック無し方針=60s
     try{
-        const res = await fetch("/chat",{
+        const res = await fetch(apiUrl("/chat"),{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({message}),
@@ -290,6 +337,8 @@ input.addEventListener("keydown", (e) => {
     if (e.isComposing || e.keyCode === 229) return;
     handleSend();
 });
+
+scheduleBackendWarmup();
 </script>
 </body>
 </html>

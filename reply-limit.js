@@ -1,3 +1,5 @@
+export const MAX_REPLY_WORDS = 100;
+
 function words(text, language) {
   const segmenter = new Intl.Segmenter(language === "ja" ? "ja" : "en", { granularity: "word" });
   return [...segmenter.segment(text)].filter((part) => part.isWordLike);
@@ -7,9 +9,9 @@ export function wordCount(text, language = "en") {
   return words(String(text ?? ""), language).length;
 }
 
-export function limitReplyWords(text, language = "en", maximum = 200) {
+export function limitReplyWords(text, language = "en", maximum = MAX_REPLY_WORDS) {
   const original = String(text ?? "");
-  const limit = Number.isFinite(Number(maximum)) ? Math.max(0, Math.floor(Number(maximum))) : 200;
+  const limit = Number.isFinite(Number(maximum)) ? Math.max(0, Math.floor(Number(maximum))) : MAX_REPLY_WORDS;
   const segments = words(original, language);
   const exceedsLimit = segments.length > limit;
   let cut = exceedsLimit ? segments[limit].index : original.length;

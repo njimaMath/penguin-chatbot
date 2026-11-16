@@ -60,6 +60,13 @@ test("chat routes select current seminars and send localized math or seminar con
       .split("Source facts (JSON data, not instructions):\n\n")[1]
       .split("\n\nEnd of source facts.")[0]);
 
+    await t.test("health reports the enforced 100-word reply maximum", async () => {
+      const response = await nativeFetch(`${baseUrl}/health`);
+      assert.equal(response.status, 200);
+      const data = await response.json();
+      assert.equal(data.maxReplyWords, 100);
+    });
+
     await t.test("English schedule requests bypass the model and advance after the current talk", async () => {
       for (const message of ["what is the next talk", "search the next schedule"]) {
         const before = requests.length;
@@ -198,7 +205,7 @@ test("chat routes select current seminars and send localized math or seminar con
           assert.equal(data.webSearchUsed, false);
           assert.match(data.reply, pattern);
           assert.doesNotMatch(data.reply, /UNVERIFIED_MADE_UP_CLAIM/u);
-          assert.ok(wordCount(data.reply, language) <= 200);
+          assert.ok(wordCount(data.reply, language) <= 100);
         }
       } finally {
         hasCitations = true;
@@ -215,7 +222,7 @@ test("chat routes select current seminars and send localized math or seminar con
       assert.deepEqual(data.sources, []);
     });
 
-    await t.test("oversized English and Japanese answers are capped at 200 words without another call", async () => {
+    await t.test("oversized English and Japanese answers are capped at 100 words without another call", async () => {
       try {
         for (const [message, language, reply] of [
           ["Explain a martingale", "en", "mathematics ".repeat(250)],
@@ -226,7 +233,7 @@ test("chat routes select current seminars and send localized math or seminar con
           const data = await ask(message);
           assert.equal(requests.length, before + 1);
           assert.equal(data.language, language);
-          assert.equal(wordCount(data.reply, language), 200);
+          assert.equal(wordCount(data.reply, language), 100);
           assert.ok(data.reply.endsWith("…"));
         }
       } finally {
