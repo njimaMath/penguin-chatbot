@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
 import { parseSeminarSchedule } from './memo.js';
+import { extractSections, getCurrentScheduleUrl } from './site-source.js';
 
 // 壊れた/空のデータで data.txt を上書きしないためのサニティチェック
 function runSanityChecks(newText) {
@@ -77,31 +78,12 @@ function extractPageLabel($, url) {
   return url.replace(`${SITE_ORIGIN}${SITE_PATH_PREFIX}`, '').replace('?authuser=0', '') || 'トップページ';
 }
 
-function extractSections($) {
-  const sections = [];
-
-  $('section').each((_, el) => {
-    const sectionText = $(el).text().replace(/\s+/g, ' ').trim();
-    if (sectionText.length > 10) {
-      sections.push(sectionText);
-    }
-  });
-
-  if (sections.length === 0) {
-    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-    if (bodyText.length > 10) {
-      sections.push(bodyText);
-    }
-  }
-
-  return sections;
-}
-
 async function fetchPage(url) {
   console.log(`${url} から情報を取得中...`);
 
   const { data } = await axios.get(url, {
-    headers: REQUEST_HEADERS
+    headers: REQUEST_HEADERS,
+    timeout: 15000,
   });
 
   const $ = cheerio.load(data);
@@ -124,7 +106,9 @@ async function scrape() {
   const results = [];
   const failures = [];
   const visited = new Set();
-  const queue = [normalizeUrl(ROOT_URL)].filter(Boolean);
+  const currentUrl = normalizeUrl(getCurrentScheduleUrl());
+  const queue = [currentUrl, normalizeUrl(ROOT_URL)].filter(Boolean);
+  let currentPageLoaded = false;
 
   while (queue.length > 0) {
     const url = queue.shift();
@@ -136,6 +120,13 @@ async function scrape() {
 
     try {
       const page = await fetchPage(url);
+      if (url === currentUrl) {
+        const currentText = page.sections.join('\n\n');
+        if (!currentText.includes('今後の予定') || !parseSeminarSchedule(currentText).length) {
+          throw new Error('現在年度の予定を読み取れませんでした');
+        }
+        currentPageLoaded = true;
+      }
       results.push(`【${page.label}】\nURL: ${url}\n\n${page.sections.join('\n\n')}`);
 
       for (const link of page.links) {
@@ -149,8 +140,8 @@ async function scrape() {
     }
   }
 
-  if (results.length === 0) {
-    console.error('❌ すべてのページのスクレイプに失敗しました。');
+  if (!currentPageLoaded) {
+    console.error('❌ 現在年度のページを取得できませんでした。保存済みのデータを保持します。');
     process.exit(1);
   }
 

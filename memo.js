@@ -23,6 +23,14 @@ function normalizeColons(text) {
   return String(text ?? "").replace(/：/g, ":");
 }
 
+function asciiDigits(text) {
+  return String(text).replace(/[０-９]/gu, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0));
+}
+
+function dateNumber(text) {
+  return Number(asciiDigits(text).replace(/\s/gu, ""));
+}
+
 // label(複数別名 OR) の値を、次のラベル or 末尾まで取り出す
 // 大文字小文字を無視(ABSTRACT:/Title: 等の表記ゆれで英文要旨が title に混入するのを防ぐ)
 function extractField(block, labelAlternation) {
@@ -38,15 +46,19 @@ function parseClock(text, fallbackHour, fallbackMinute) {
 }
 
 function parseTimeRange(timeText) {
-  const normalized = normalizeText(timeText || DEFAULT_TIME_RANGE);
-  const match = normalized.match(/(\d{1,2}:\d{2})\s*[-–~〜]\s*(\d{1,2}:\d{2})/);
-  if (!match) {
+  // Google Sites may split digits across text spans, e.g. "1 7:3 0".
+  const normalized = asciiDigits(timeText || DEFAULT_TIME_RANGE).replace(/\s/gu, "");
+  const match = normalized.match(/(\d{1,2}:\d{2})[-–~〜～](\d{1,2}:\d{2})/);
+  const start = match ? parseClock(match[1], 16, 0) : null;
+  const end = match ? parseClock(match[2], 17, 30) : null;
+  if (!match || start.hour > 23 || end.hour > 23 || start.minute > 59 || end.minute > 59
+    || end.hour * 60 + end.minute <= start.hour * 60 + start.minute) {
     return { display: DEFAULT_TIME_RANGE, start: { hour: 16, minute: 0 }, end: { hour: 17, minute: 30 } };
   }
   return {
     display: `${match[1]} - ${match[2]}`,
-    start: parseClock(match[1], 16, 0),
-    end: parseClock(match[2], 17, 30),
+    start,
+    end,
   };
 }
 
@@ -56,7 +68,8 @@ function toTokyoTimestamp(year, month, day, hour, minute) {
 
 // 会場文字列を整形: URL除去 + アクセス/地図等のノイズで切る + 80字cap
 function cleanVenue(raw) {
-  let v = normalizeText(raw).replace(/https?:\/\/\S+/g, "");
+  let v = asciiDigits(normalizeText(raw)).replace(/https?:\/\/\S+/g, "");
+  v = v.replace(/(\d(?:\s*\d)*)\s*号室/gu, (_match, room) => `${room.replace(/\s/gu, "")}号室`);
   for (const sentinel of ["アクセス", "地図", "茶菓子", "https", "受付", "登録"]) {
     const i = v.indexOf(sentinel);
     if (i > 0) v = v.slice(0, i);
@@ -100,7 +113,10 @@ function parseTalks(body) {
 // 会場の冗長な正式名称を短い正準表記に(情報は保持しつつトークンを圧縮)
 function shortenVenue(v) {
   if (!v) return "未掲載";
-  if (/(駒場|数理科学研究科)/u.test(v)) return "東大駒場126号室";
+  if (/(駒場|数理科学研究科)/u.test(v)) {
+    const room = v.match(/\d+号室/u)?.[0] || "";
+    return `東大駒場${room}`;
+  }
   if (/早稲田/u.test(v)) {
     const m = v.match(/(\d{1,2}-\d{1,2})/u);
     return m ? `早稲田51号館${m[1]}` : "早稲田大学";
@@ -126,8 +142,11 @@ export function parseSeminarSchedule(rawText) {
   const sourceStart = text.indexOf("今後の予定");
   const source = sourceStart >= 0 ? text.slice(sourceStart) : text;
 
-  // 日付マーカー(full-width（）。half-widthは実データ上1件のみのため数値dedupで吸収)
-  const markerPattern = /\d{4}年(?:\d{1,2}|\*+)月(?:\d{1,2}|\*+)日（[^）]+）/gu;
+  // Normalize only date fields, preserving spacing and Unicode in titles/abstracts.
+  const digit = "[0-9０-９]";
+  const yearDigits = `${digit}(?:\\s*${digit}){3}`;
+  const dateDigits = `${digit}(?:\\s*${digit})?`;
+  const markerPattern = new RegExp(`(${yearDigits})\\s*年\\s*(${dateDigits}|\\*+)\\s*月\\s*(${dateDigits}|\\*+)\\s*日\\s*[（(]([^）)]+)[）)]`, "gu");
   const markers = [...source.matchAll(markerPattern)];
 
   const byKey = new Map();
@@ -138,18 +157,19 @@ export function parseSeminarSchedule(rawText) {
     const endIndex = markers[i + 1]?.index ?? source.length;
     const rawBlock = trimTrailingNoise(source.slice(startIndex, endIndex));
 
-    const dateMatch = rawBlock.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日（([^）]+)）/u);
-    if (!dateMatch) {
+    const dateMatch = markers[i];
+    if (dateMatch[2].includes("*") || dateMatch[3].includes("*")) {
       // 「2026年*月**日」等の日程調整中の枠
-      if (/^\d{4}年(?:\*+|\d{1,2})月(?:\*+|\d{1,2})日/u.test(rawBlock)) tbdCount += 1;
+      tbdCount += 1;
       continue;
     }
 
-    const year = Number(dateMatch[1]);
-    const month = Number(dateMatch[2]);
-    const day = Number(dateMatch[3]);
-    const weekday = dateMatch[4];
-    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    const year = dateNumber(dateMatch[1]);
+    const month = dateNumber(dateMatch[2]);
+    const day = dateNumber(dateMatch[3]);
+    const weekday = normalizeText(dateMatch[4]);
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+    if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() !== month - 1 || calendarDate.getUTCDate() !== day) {
       tbdCount += 1;
       continue;
     }
@@ -172,11 +192,10 @@ export function parseSeminarSchedule(rawText) {
       endTimestamp: Math.max(...talks.map((t) => t.endTimestamp)),
     };
 
-    // dedup: 同一(年,月,日)はページ重複。情報量が多い方(要旨ありの talk 数)を残す
+    // Current/root pages are scraped first. Older archives must not overwrite
+    // corrections to the room, speaker or cancelled talks with richer old text.
     const key = `${year}-${month}-${day}`;
-    const richness = (rec) => rec.talks.reduce((n, t) => n + (t.abstract ? 2 : 0) + (t.title ? 1 : 0), 0);
-    const existing = byKey.get(key);
-    if (!existing || richness(record) > richness(existing)) byKey.set(key, record);
+    if (!byKey.has(key)) byKey.set(key, record);
   }
 
   const seminars = [...byKey.values()].sort((a, b) => a.startTimestamp - b.startTimestamp);
@@ -232,8 +251,7 @@ export function buildCompactMemo(seminars, now = new Date(), meta = {}) {
     const nt = next.talks[0] ?? {};
     lines.push(`【次回セミナー】${next.dateLabel} ${nt.timeText || DEFAULT_TIME_RANGE} 講師:${nt.speaker || "未掲載"} 会場:${shortenVenue(next.venue)}`);
   } else {
-    const latest = past[0];
-    lines.push(`【次回セミナー】現在のデータに今後の開催予定はありません。${latest ? `最新の確定回は ${latest.dateLabel} です。` : ""}最新情報は公式サイトをご確認ください。`);
+    lines.push("【次回セミナー】現在のデータに今後の開催予定はありません。過去の回を次回として案内せず、最新情報は公式サイトをご確認ください。");
   }
 
   lines.push("【今後の予定】");

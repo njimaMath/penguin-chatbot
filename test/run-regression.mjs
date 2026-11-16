@@ -9,7 +9,7 @@ const hasKey = Boolean(process.env.OPENROUTER_API_KEY);
 
 const server = spawn("node", ["server.js"], {
   cwd: new URL("..", import.meta.url),
-  env: { ...process.env, PORT: String(PORT), PENGUIN_TEST_NOW: cfg.now },
+  env: { ...process.env, NODE_ENV: "test", PORT: String(PORT), PENGUIN_TEST_NOW: cfg.now },
   stdio: "ignore",
 });
 

@@ -22,6 +22,7 @@ export async function callOpenRouter(systemContent, userMessage, {
   env = process.env,
   fetchImpl = globalThis.fetch,
   timeoutMs = 20000,
+  maxTokens = 1200,
 } = {}) {
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
@@ -29,7 +30,7 @@ export async function callOpenRouter(systemContent, userMessage, {
   const body = JSON.stringify({
     model: getOpenRouterModel(env),
     temperature: 0.2,
-    max_tokens: 1200,
+    max_tokens: maxTokens,
     // Short factual answers should not spend their output budget on thinking.
     reasoning: { enabled: false },
     messages: [

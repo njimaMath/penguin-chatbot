@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Penguin Chatbot</title>
+<script>
+window.MathJax = {
+    loader: { load: ["ui/safe"] },
+    tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"]], processEscapes: true },
+    options: { safeOptions: { allow: { URLs: "none", classes: "none", cssIDs: "none", styles: "none" } } },
+};
+</script>
+<script id="mathjax-script" defer src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0/tex-chtml.js"></script>
 <style>
 body {
     --page-gutter: clamp(8px, 3vw, 16px);
@@ -78,10 +86,13 @@ body {
 #chat {width:100%; flex:1; min-height:0; border:1px solid #ccc; background:#fff; padding:10px; overflow-y:auto; margin-bottom:10px; box-sizing:border-box;}
 .message.user {text-align:right; color:#004488;}
 .message.bot {text-align:left; color:#0a7722;}
+.message { white-space:pre-wrap; overflow-wrap:anywhere; margin-bottom:10px; line-height:1.5; }
+.message mjx-container[display="true"] { overflow-x:auto; max-width:100%; padding-bottom:4px; }
 .message.bot a{color:#0a5cbf; text-decoration:underline; word-break:break-all;}
 .message.bot details{margin-top:6px; font-size:0.92em;}
 .message.bot summary{cursor:pointer; color:#0a5cbf;}
 .abstract-original{margin-top:4px; color:#333; white-space:pre-wrap; line-height:1.5;}
+.source-note{margin-top:6px; font-size:0.85em; color:#4d6174;}
 #send-btn:disabled{background:#9bbad6; cursor:default;}
 .input-row { display:flex; width:100%; gap:clamp(6px, 2vw, 10px);}
 #user-input {flex:1; min-width:0; padding:clamp(8px, 2.4vw, 10px); font-size:clamp(14px, 3.5vw, 16px); box-sizing:border-box;}
@@ -129,6 +140,21 @@ const input = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 let isSending = false;
 
+function replyLanguage(message){
+    return /[\u3040-\u30ff]/u.test(message) || (/[\u3400-\u9fff]/u.test(message) && !/[a-z]{2,}/iu.test(message)) ? "ja" : "en";
+}
+
+function renderMath(element){
+    if(window.MathJax?.typesetPromise){
+        window.MathJax.typesetPromise([element]).then(()=>{
+            chat.scrollTop = chat.scrollHeight;
+        }).catch(error=>console.error("Math rendering failed", error));
+    }
+}
+document.getElementById("mathjax-script").addEventListener("load", ()=>{
+    window.MathJax.startup.promise.then(()=>renderMath(chat));
+});
+
 // 本文を安全に描画(URLだけ<a>化、それ以外はtextNode=XSS防止)
 function appendLinkedText(parent, text){
     const parts = String(text).split(/(https?:\/\/[^\s、。）)]+)/gu);
@@ -149,7 +175,7 @@ function appendLinkedText(parent, text){
     }
 }
 
-function appendMessage(role, text, abstracts){
+function appendMessage(role, text, abstracts, sources, checkedAt, language = "ja"){
     const div = document.createElement('div');
     div.className = `message ${role}`;
     if(role === "user"){
@@ -161,7 +187,7 @@ function appendMessage(role, text, abstracts){
                 if(ab.abstractMissing || !ab.original) continue;
                 const d = document.createElement("details");
                 const s = document.createElement("summary");
-                s.textContent = `要旨の原文を見る（${ab.dateLabel}）`;
+                s.textContent = language === "en" ? `Original abstract (${ab.dateLabel})` : `要旨の原文を見る（${ab.dateLabel}）`;
                 const body = document.createElement("div");
                 body.className = "abstract-original";
                 appendLinkedText(body, ab.original);
@@ -169,8 +195,32 @@ function appendMessage(role, text, abstracts){
                 div.appendChild(d);
             }
         }
+        if(Array.isArray(sources) && sources.length){
+            const note = document.createElement("div");
+            note.className = "source-note";
+            note.appendChild(document.createTextNode(language === "en" ? "Source: " : "出典: "));
+            for(const source of sources){
+                try{
+                    const url = new URL(source.url);
+                    if(url.protocol !== "https:" || url.hostname !== "sites.google.com") continue;
+                    const link = document.createElement("a");
+                    link.href = url.href;
+                    link.textContent = source.title || (language === "en" ? "Official website" : "公式サイト");
+                    link.target = "_blank";
+                    link.rel = "noopener noreferrer";
+                    note.appendChild(link);
+                }catch(_){ /* ignore invalid source links */ }
+            }
+            const checked = new Date(checkedAt || "");
+            if(Number.isFinite(checked.getTime())){
+                const label = language === "en" ? "Data checked" : "データ確認";
+                note.appendChild(document.createTextNode(` · ${label}: ${checked.toLocaleString(language === "en" ? "en-GB" : "ja-JP", { timeZone: "Asia/Tokyo" })} JST`));
+            }
+            div.appendChild(note);
+        }
     }
     chat.appendChild(div);
+    if(role === "bot") renderMath(div);
     chat.scrollTop = chat.scrollHeight;
     return div;
 }
@@ -201,23 +251,26 @@ async function handleSend(){
     if(isSending) return;                         // 二重送信防止
     const message = input.value.trim();
     if(!message) return;
+    const language = replyLanguage(message);
     isSending = true; sendBtn.disabled = true;
     appendMessage("user", message);
     input.value = "";
     mouth.classList.add('mouth-moving');          // 応答が返るまで口パク継続(固定3秒タイマー廃止)
 
-    const typing = appendMessage("bot", "考え中…");
-    const slowTimer = setTimeout(()=>{ typing.textContent = "サーバーが起きるまで少し待ってね…"; }, 3000);
+    const typing = appendMessage("bot", language === "en" ? "Thinking…" : "考え中…");
+    const slowTimer = setTimeout(()=>{ typing.textContent = language === "en" ? "Still working on your question…" : "もう少し待っててね…"; }, 3000);
 
     try{
         const data = await askChatGPT(message);
         clearTimeout(slowTimer);
         typing.remove();
-        appendMessage("bot", data.reply || "うまくお返事できなかったの。ごめんね。", data.abstract);
+        appendMessage("bot", data.reply || (language === "en" ? "I couldn't produce an answer. Please try again." : "うまくお返事できなかったの。ごめんね。"), data.abstract, data.sources, data.checkedAt, data.language || language);
     }catch(e){
         clearTimeout(slowTimer);
         typing.remove();
-        const msg = (e.name === "AbortError")
+        const msg = language === "en"
+            ? (e.name === "AbortError" ? "The reply took too long. Please try again." : "I couldn't send your question. Please try again shortly.")
+            : (e.name === "AbortError")
             ? "ごめんね、お返事に時間がかかりすぎちゃったみたい。もう一度試してね。"
             : "ごめんね、うまくお返事できなかったの。少し時間をおいて試してね。";
         appendMessage("bot", msg);
