@@ -127,21 +127,24 @@ export function buildNextSeminarReply(seminar, {
   const venue = venueText(seminar.venue, language);
   let answer;
   if (seminar.isDoubleHeader || talks.length > 1) {
+    const differentVenues = talks.some((talk) => talk.venue && talk.venue !== seminar.venue);
     if (english) {
       const descriptions = talks.map((talk) => {
         const time = talk.timeText ? `${talk.timeText} JST` : "time not yet announced";
         const title = talk.title ? ` Title: ${talk.title}.` : " The title hasn't been announced yet.";
-        return `${talk.speaker || "Speaker not yet announced"} (${time}).${title}`;
+        const location = differentVenues ? `, at ${venueText(talk.venue || seminar.venue, language)}` : "";
+        return `${talk.speaker || "Speaker not yet announced"} (${time}${location}).${title}`;
       });
-      answer = `The next seminar is a double header on ${date} at ${venue}. ${descriptions.join(" ")}`;
+      answer = `The next seminar is a double header on ${date}${differentVenues ? "" : ` at ${venue}`}. ${descriptions.join(" ")}`;
     } else {
       const descriptions = talks.map((talk) => {
         const speaker = talk.speaker ? `${talk.speaker}さん` : "講師未掲載";
         const time = talk.timeText || "時間未掲載";
         const title = talk.title ? `タイトルは「${talk.title}」だよ。` : "タイトルはまだ未掲載なの。";
-        return `${time}、${speaker}の講演があるの。${title}`;
+        const location = differentVenues ? `会場は${venueText(talk.venue || seminar.venue, language)}で、` : "";
+        return `${time}、${location}${speaker}の講演があるの。${title}`;
       });
-      answer = `次のセミナーは${date}、会場は${venue}でダブルヘッダーだよ。${descriptions.join("")}`;
+      answer = `次のセミナーは${date}、${differentVenues ? "" : `会場は${venue}で`}ダブルヘッダーだよ。${descriptions.join("")}`;
     }
   } else {
     const talk = talks[0] || {};

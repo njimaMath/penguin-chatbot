@@ -22,7 +22,7 @@ test("model defaults to the verified snapshot and accepts a trimmed override", (
   assert.equal(getOpenRouterModel({ OPENROUTER_MODEL: " deepseek/custom-model " }), "deepseek/custom-model");
 });
 
-test("sends a concise non-reasoning request and returns only the answer", async () => {
+test("requests low reasoning within a concise budget and returns only the answer", async () => {
   let calls = 0;
   const reply = await callOpenRouter("Use the seminar facts.", "会場は？", {
     env,
@@ -33,8 +33,8 @@ test("sends a concise non-reasoning request and returns only the answer", async 
       assert.equal(options.headers.Authorization, "Bearer test-api-key");
       const body = JSON.parse(options.body);
       assert.equal(body.model, DEFAULT_MODEL);
-      assert.deepEqual(body.reasoning, { enabled: false });
-      assert.equal(body.max_tokens, 1200);
+      assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
+      assert.equal(body.max_tokens, 1000);
       assert.equal(body.temperature, 0.2);
       assert.deepEqual(body.messages, [
         { role: "system", content: "Use the seminar facts." },

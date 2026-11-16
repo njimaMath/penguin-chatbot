@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseSeminarSchedule, getNextSeminar, buildCompactMemo } from "../memo.js";
+import { buildIndex } from "../search.js";
 
 const schedule = `今後の予定
 2026年1 1月9日（月）
@@ -96,4 +97,33 @@ test("date parsing accepts fullwidth digits and rejects impossible calendar date
   assert.equal(seminars[0].dateLabel, "2026年11月16日（月）");
   assert.equal(seminars[0].talks[0].timeText, "16:00 - 17:30");
   assert.equal(seminars._tbdCount, 3);
+});
+
+test("double headers preserve each talk's room in records, memo and search", () => {
+  const seminars = parseSeminarSchedule(`今後の予定
+2026年11月2日（月）
+場所：東京大学大学院数理科学研究科（駒場）１５８号室
+講師：Mo Dick Wong 氏
+時間：14:00 - 15:30
+Title: First title
+Abstract: First abstract with $x_1 + x_2$.
+場所：東京大学大学院数理科学研究科（駒場）１２２号室
+講師：大石 皐遥 氏
+時間：16:00 - 17:30
+Title: Second title
+Abstract: Second abstract with its original content.
+`);
+  assert.equal(seminars.length, 1);
+  assert.equal(seminars[0].isDoubleHeader, true);
+  assert.match(seminars[0].venue, /158号室/u);
+  assert.deepEqual(seminars[0].talks.map((talk) => talk.venue.match(/\d+号室/u)[0]), ["158号室", "122号室"]);
+  assert.deepEqual(seminars[0].talks.map((talk) => talk.title), ["First title", "Second title"]);
+  assert.deepEqual(seminars[0].talks.map((talk) => talk.abstract), [
+    "First abstract with $x_1 + x_2$.", "Second abstract with its original content.",
+  ]);
+  const memo = buildCompactMemo(seminars, new Date("2026-11-01T00:00:00Z"));
+  assert.match(memo, /Mo Dick Wong 会場:東大駒場158号室/u);
+  assert.match(memo, /大石 皐遥 会場:東大駒場122号室/u);
+  const index = buildIndex(seminars);
+  assert.deepEqual(index.docs.map((doc) => doc.venue.match(/\d+号室/u)[0]), ["158号室", "122号室"]);
 });

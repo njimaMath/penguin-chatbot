@@ -99,3 +99,16 @@ test("double headers retain each speaker, time and title in localized replies", 
     assert.match(reply, language === "en" ? /double header/u : /ダブルヘッダー/u);
   }
 });
+
+test("double headers show individual rooms when the venue changes between talks", () => {
+  const double = { ...current, venue: "東大駒場158号室", isDoubleHeader: true, talks: [
+    { speaker: "Speaker A", timeText: "14:00 - 15:30", title: "First title", venue: "東大駒場158号室" },
+    { speaker: "Speaker B", timeText: "16:00 - 17:30", title: "Second title", venue: "東大駒場122号室" },
+  ] };
+  const english = buildNextSeminarReply(double, { language: "en" });
+  assert.match(english, /Speaker A \(14:00 - 15:30 JST, at University of Tokyo, Komaba Campus, Room 158\)/u);
+  assert.match(english, /Speaker B \(16:00 - 17:30 JST, at University of Tokyo, Komaba Campus, Room 122\)/u);
+  const japanese = buildNextSeminarReply(double, { language: "ja" });
+  assert.match(japanese, /14:00 - 15:30、会場は東大駒場158号室で、Speaker A/u);
+  assert.match(japanese, /16:00 - 17:30、会場は東大駒場122号室で、Speaker B/u);
+});

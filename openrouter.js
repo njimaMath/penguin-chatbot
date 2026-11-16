@@ -17,12 +17,13 @@ class OpenRouterError extends Error {
   }
 }
 
-// Both attempts together fit within the chat UI's 60-second timeout.
-export async function callOpenRouter(systemContent, userMessage, {
+// Ordinary requests allow one retry; searched requests use one bounded paid attempt.
+export async function callOpenRouterWithSources(systemContent, userMessage, {
   env = process.env,
   fetchImpl = globalThis.fetch,
-  timeoutMs = 20000,
-  maxTokens = 1200,
+  webSearch = false,
+  timeoutMs = webSearch ? 45000 : 20000,
+  maxTokens = 1000,
 } = {}) {
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
@@ -31,16 +32,17 @@ export async function callOpenRouter(systemContent, userMessage, {
     model: getOpenRouterModel(env),
     temperature: 0.2,
     max_tokens: maxTokens,
-    // Short factual answers should not spend their output budget on thinking.
-    reasoning: { enabled: false },
+    reasoning: { effort: "low", exclude: true },
     messages: [
       { role: "system", content: systemContent },
       { role: "user", content: userMessage },
     ],
+    ...(webSearch ? { plugins: [webSearchPlugin()] } : {}),
   });
 
   let lastError;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+  const attempts = webSearch ? 1 : MAX_ATTEMPTS;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -73,11 +75,18 @@ export async function callOpenRouter(systemContent, userMessage, {
         throw new OpenRouterError(data?.error?.message || `OpenRouter API error: ${status}`, status);
       }
 
-      const content = data?.choices?.[0]?.message?.content;
+      const message = data?.choices?.[0]?.message;
+      const content = message?.content;
       if (typeof content !== "string" || !content.trim()) {
         throw new Error("OpenRouter returned no answer text");
       }
-      return content.trim();
+      const sources = extractWebSources(message.annotations);
+      if (webSearch && !sources.length) {
+        const error = new Error("Web search returned no verifiable sources");
+        error.code = "WEB_SEARCH_NO_SOURCES";
+        throw error;
+      }
+      return { reply: content.trim(), sources, webSearchUsed: webSearch && sources.length > 0 };
     } catch (error) {
       if (error instanceof OpenRouterError && !error.retryable) throw error;
       lastError = error;
@@ -87,4 +96,10 @@ export async function callOpenRouter(systemContent, userMessage, {
     }
   }
   throw lastError;
+}
+import { extractWebSources, webSearchPlugin } from "./web-search.js";
+
+
+export async function callOpenRouter(...args) {
+  return (await callOpenRouterWithSources(...args)).reply;
 }

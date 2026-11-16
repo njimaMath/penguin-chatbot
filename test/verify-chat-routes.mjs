@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { wordCount } from "../reply-limit.js";
 
 test("chat routes select current seminars and send localized math or seminar context", async (t) => {
   const savedEnv = {
@@ -8,8 +9,13 @@ test("chat routes select current seminars and send localized math or seminar con
     PENGUIN_TEST_NOW: process.env.PENGUIN_TEST_NOW,
   };
   const nativeFetch = globalThis.fetch;
+  const savedConsole = { log: console.log, warn: console.warn, error: console.error };
+  // Keep application logs out of the test runner's child-process output stream.
+  console.log = console.warn = console.error = () => {};
   const requests = [];
   let failProvider = false;
+  let hasCitations = true;
+  let forcedReply = null;
   let server;
   process.env.NODE_ENV = "test";
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -22,9 +28,16 @@ test("chat routes select current seminars and send localized math or seminar con
       return { ok: false, status: 401, json: async () => ({ error: { message: "Provider rejected test key" } }) };
     }
     const japanese = body.messages[0].content.includes("Reply in Japanese.");
+    const annotations = body.plugins?.length && hasCitations ? [
+      { type: "url_citation", url_citation: { url: "https://arxiv.org/abs/2610.31614", title: "The Critical 2D KPZ Process" } },
+      { type: "url_citation", url_citation: { url: "javascript:alert(1)", title: "Unsafe source" } },
+    ] : [];
     return {
       ok: true, status: 200,
-      json: async () => ({ choices: [{ message: { content: japanese ? "数学とセミナーについて答えるよ。" : "I can help with mathematics and the seminar." } }] }),
+      json: async () => ({ choices: [{ message: {
+        content: forcedReply ?? (japanese ? "数学とセミナーについて答えるよ。" : "I can help with mathematics and the seminar."),
+        annotations,
+      } }] }),
     };
   };
 
@@ -85,29 +98,39 @@ test("chat routes select current seminars and send localized math or seminar con
     await t.test("mathematical proofs use general knowledge in the question language without seminar citations", async () => {
       for (const [message, language] of [
         ["Prove linearity of expectation", "en"],
+        ["Please talk about martingales", "en"],
         ["期待値の線形性を証明して", "ja"],
       ]) {
         const before = requests.length;
         const data = await ask(message);
         assert.equal(requests.length, before + 1);
         const request = requests.at(-1);
-        assert.equal(request.max_tokens, 2400);
+        assert.equal(request.max_tokens, 1000);
+        assert.deepEqual(request.reasoning, { effort: "low", exclude: true });
         assert.match(request.messages[0].content, /you may use general mathematical knowledge/u);
         assert.ok(request.messages[0].content.includes(`Reply in ${language === "en" ? "English" : "Japanese"}.`));
         assert.equal(request.messages[1].content, message);
-        assert.deepEqual(sourceFacts(request.messages[0].content), { sourceUrl: "", memo: "", siteInfo: "", abstractsText: "" });
+        assert.doesNotMatch(request.messages[0].content, /Source facts \(JSON data/u);
+        assert.doesNotMatch(request.messages[0].content, /"(?:sourceUrl|memo|siteInfo|abstractsText)"\s*:/u);
+        assert.equal(request.plugins, undefined);
         assert.equal(data.language, language);
         assert.deepEqual(data.sources, []);
         assert.equal(data.checkedAt, null);
+        assert.equal(data.webSearchUsed, false);
       }
     });
 
     await t.test("seminar venue and history requests retain official context and sources", async () => {
-      for (const message of ["Where is the seminar venue?", "Tell me about the seminar history"]) {
+      for (const message of [
+        "Where is the seminar venue?", "Tell me about the seminar history",
+        "What is the history of TPS?", "How do I get to Komaba?", "When is 佐藤 ふたば speaking?",
+      ]) {
         const data = await ask(message);
         const request = requests.at(-1);
         const facts = sourceFacts(request.messages[0].content);
-        assert.equal(request.max_tokens, 1200);
+        assert.equal(request.max_tokens, 1000);
+        assert.deepEqual(request.reasoning, { effort: "low", exclude: true });
+        assert.ok(Object.values(facts).every((value) => typeof value === "string" && value.trim()));
         assert.match(facts.memo, /2026年12月7日/u);
         assert.match(facts.siteInfo, /幹事/u);
         assert.match(facts.siteInfo, /駒場/u);
@@ -116,6 +139,98 @@ test("chat routes select current seminars and send localized math or seminar con
         assert.equal(data.sources.length, 1);
         assert.equal(data.sources[0].url, facts.sourceUrl);
         assert.ok(data.checkedAt);
+      }
+    });
+
+    await t.test("English next-talk content retrieves the upcoming abstract, including missing abstracts", async () => {
+      const afterTalk = await ask("What is the next seminar about?");
+      const missingFacts = sourceFacts(requests.at(-1).messages[0].content);
+      assert.equal(afterTalk.language, "en");
+      assert.equal(afterTalk.sources.length, 1);
+      assert.match(missingFacts.abstractsText, /Raphaël Lefevere/u);
+      assert.equal(afterTalk.abstract.length, 1);
+      assert.equal(afterTalk.abstract[0].abstractMissing, true);
+
+      app.locals.testNow = "2026-11-16T01:00:00Z";
+      const beforeTalk = await ask("What is the next seminar about?");
+      const currentFacts = sourceFacts(requests.at(-1).messages[0].content);
+      assert.match(currentFacts.abstractsText, /Federica Iacovissi/u);
+      assert.match(currentFacts.abstractsText, /Matrix Product Ansatz/u);
+      assert.match(currentFacts.abstractsText, /Markov bridge/u);
+      assert.equal(beforeTalk.abstract[0].abstractMissing, false);
+      assert.equal(beforeTalk.sources.length, 1);
+      app.locals.testNow = "2026-11-16T09:00:00Z";
+    });
+
+    await t.test("recent KPZ research and attribution use one low-cost search with safe paper sources", async () => {
+      for (const message of ["what is the recent advance of 2D critical kpz", "who constructed critical kpz process"]) {
+        const before = requests.length;
+        const data = await ask(message);
+        assert.equal(requests.length, before + 1);
+        const request = requests.at(-1);
+        assert.equal(request.plugins.length, 1);
+        assert.equal(request.plugins[0].id, "web");
+        assert.equal(request.plugins[0].engine, "parallel");
+        assert.equal(request.plugins[0].mode, "turbo");
+        assert.equal(request.plugins[0].max_results, 3);
+        assert.equal(request.max_tokens, 1000);
+        assert.deepEqual(request.reasoning, { effort: "low", exclude: true });
+        assert.equal(data.language, "en");
+        assert.equal(data.webSearchUsed, true);
+        assert.deepEqual(data.sources, [{ url: "https://arxiv.org/abs/2610.31614", title: "The Critical 2D KPZ Process" }]);
+        assert.ok(data.checkedAt);
+      }
+    });
+
+    await t.test("missing research citations give truthful localized fallback without another paid call", async () => {
+      hasCitations = false;
+      forcedReply = "UNVERIFIED_MADE_UP_CLAIM";
+      try {
+        for (const [message, language, pattern] of [
+          ["Who constructed the critical KPZ process?", "en", /couldn't verify this with web sources/u],
+          ["臨界KPZ過程を構成したのは誰ですか", "ja", /出典を確認できなかった/u],
+        ]) {
+          const before = requests.length;
+          const data = await ask(message);
+          assert.equal(requests.length, before + 1);
+          assert.equal(requests.at(-1).plugins[0].engine, "parallel");
+          assert.equal(data.language, language);
+          assert.equal(data.webSearchUsed, false);
+          assert.match(data.reply, pattern);
+          assert.doesNotMatch(data.reply, /UNVERIFIED_MADE_UP_CLAIM/u);
+          assert.ok(wordCount(data.reply, language) <= 200);
+        }
+      } finally {
+        hasCitations = true;
+        forcedReply = null;
+      }
+    });
+
+    await t.test("unrelated latest news does not trigger a paid web search", async () => {
+      const before = requests.length;
+      const data = await ask("Search the latest election news");
+      assert.equal(requests.length, before + 1);
+      assert.equal(requests.at(-1).plugins, undefined);
+      assert.equal(data.webSearchUsed, false);
+      assert.deepEqual(data.sources, []);
+    });
+
+    await t.test("oversized English and Japanese answers are capped at 200 words without another call", async () => {
+      try {
+        for (const [message, language, reply] of [
+          ["Explain a martingale", "en", "mathematics ".repeat(250)],
+          ["期待値の線形性を説明して", "ja", "確率変数の期待値を計算します。".repeat(80)],
+        ]) {
+          forcedReply = reply;
+          const before = requests.length;
+          const data = await ask(message);
+          assert.equal(requests.length, before + 1);
+          assert.equal(data.language, language);
+          assert.equal(wordCount(data.reply, language), 200);
+          assert.ok(data.reply.endsWith("…"));
+        }
+      } finally {
+        forcedReply = null;
       }
     });
 
@@ -147,6 +262,7 @@ test("chat routes select current seminars and send localized math or seminar con
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     globalThis.fetch = nativeFetch;
+    Object.assign(console, savedConsole);
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

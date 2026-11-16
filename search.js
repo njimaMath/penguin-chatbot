@@ -27,7 +27,7 @@ export function buildIndex(seminars) {
       docs.push({
         year: s.year, month: s.month, day: s.day,
         dateLabel: s.dateLabel,
-        venue: s.venue,
+        venue: t.venue || s.venue,
         speaker: t.speaker || "",
         title: t.title || "",
         abstract: t.abstract || "",
@@ -136,16 +136,24 @@ export function hybridSearch(query, index, k = 3) {
 
 // --- この質問は要旨の中身が必要か(ヒューリスティック単線) ---
 export function needsAbstractRetrieval(message) {
-  return /(内容|中身|要旨|概要|アブストラクト|abstract|どんな(話|研究|内容|こと)|に関係|に関連|扱った|について|テーマ|分野|研究は|話した)/iu.test(message);
+  return /(内容|中身|要旨|概要|アブストラクト|abstract|どんな(話|研究|内容|こと)|に関係|に関連|扱った|について|テーマ|分野|研究は|話した)/iu.test(message)
+    || /\b(?:about|contents?|summar(?:y|ies|ize|ise)|explain|research|topics?)\b/iu.test(message);
 }
 
 // --- ファサード: server.js から呼ぶ。lookup(特定) か search(テーマ) を判定して返す ---
-export function retrieveAbstracts(message, index) {
+export function retrieveAbstracts(message, index, { nextSeminar } = {}) {
+  const asksNext = /\b(?:next|upcoming)\s+(?:seminar|talk|lecture)\b/iu.test(message)
+    || /(?:次(?:回)?|今後|これから)(?:の)?(?:セミナー|講演)|次回/u.test(message);
   const isSpecific = parseQueryDate(message) || index.docs.some((d) => speakerMatches(message, d.speaker));
   let docs = [];
   let confidence = "high";
   let kind = "lookup";
-  if (isSpecific) {
+  if (asksNext) {
+    // A request for the next talk must not fall back to a similar past abstract.
+    docs = nextSeminar ? index.docs.filter((d) => d.year === nextSeminar.year
+      && d.month === nextSeminar.month && d.day === nextSeminar.day) : [];
+    if (!docs.length) confidence = "none";
+  } else if (isSpecific) {
     docs = lookupAbstract(message, index);
   } else {
     kind = "search";

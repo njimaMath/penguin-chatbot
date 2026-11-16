@@ -141,6 +141,7 @@ const sendBtn = document.getElementById('send-btn');
 let isSending = false;
 
 function replyLanguage(message){
+    if(/^\s*(?:(?:please|can you|could you|would you)\s+)?(?:what|when|where|who|why|how|tell|show|explain|prove|define|compute|calculate)\b/iu.test(message)) return "en";
     return /[\u3040-\u30ff]/u.test(message) || (/[\u3400-\u9fff]/u.test(message) && !/[a-z]{2,}/iu.test(message)) ? "ja" : "en";
 }
 
@@ -202,12 +203,13 @@ function appendMessage(role, text, abstracts, sources, checkedAt, language = "ja
             for(const source of sources){
                 try{
                     const url = new URL(source.url);
-                    if(url.protocol !== "https:" || url.hostname !== "sites.google.com") continue;
+                    if(!["http:", "https:"].includes(url.protocol) || url.username || url.password) continue;
                     const link = document.createElement("a");
                     link.href = url.href;
                     link.textContent = source.title || (language === "en" ? "Official website" : "公式サイト");
                     link.target = "_blank";
                     link.rel = "noopener noreferrer";
+                    if(note.childNodes.length > 1) note.appendChild(document.createTextNode(" · "));
                     note.appendChild(link);
                 }catch(_){ /* ignore invalid source links */ }
             }

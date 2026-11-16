@@ -18,8 +18,9 @@ test("mathematics is allowed beyond seminar facts while logistical details remai
   assert.match(prompt, /Mathematics: you may use general mathematical knowledge even when/u);
   assert.match(prompt, /Do not refuse a mathematical question just because/u);
   assert.match(prompt, /State necessary assumptions and define symbols/u);
-  assert.match(prompt, /complete argument at a length appropriate to the question/u);
-  assert.match(prompt, /summary limit does not apply to mathematical explanations or proofs/u);
+  assert.match(prompt, /short correct argument/u);
+  assert.match(prompt, /at most 200 words/u);
+  assert.match(prompt, /including mathematical explanations and proofs, must remain within 200 words/u);
   assert.match(prompt, /Never present a past seminar as the next seminar/u);
   assert.match(prompt, /venue locations and access directions, seminar history, organizers/u);
   assert.match(prompt, /Do not refuse these as unrelated travel/u);
@@ -35,7 +36,21 @@ test("scope, math rendering, and research honesty are explicit", () => {
   assert.match(prompt, /without numbered steps/u);
   assert.match(prompt, /without Markdown formatting or bold text/u);
   assert.match(prompt, /do not invent papers, theorem statements/u);
-  assert.match(prompt, /Do not claim to have searched the web or accessed a paper/u);
+  assert.match(prompt, /Do not claim a search took place/u);
+  assert.match(prompt, /Preserve the requested spatial dimension, critical scaling regime/u);
+  assert.doesNotMatch(prompt, /Source facts \(JSON/u);
+  assert.doesNotMatch(prompt, /"memo":\s*""|"siteInfo":\s*""/u);
+});
+
+test("research can use real web evidence without exposing empty seminar metadata", () => {
+  const prompt = buildChatSystemPrompt({ webSearch: true, currentDate: "2026-11-16" });
+  assert.match(prompt, /Live web search is enabled/u);
+  assert.match(prompt, /original papers, arXiv records/u);
+  assert.match(prompt, /Cite exact supporting URLs supplied by search/u);
+  assert.match(prompt, /Never describe internal fields/u);
+  assert.match(prompt, /Current date in Japan: 2026-11-16/u);
+  assert.doesNotMatch(prompt, /Source facts \(JSON/u);
+  assert.doesNotMatch(prompt, /No live web search is included/u);
 });
 
 test("memo and abstract text stay intact as untrusted source data", () => {

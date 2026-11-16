@@ -11,11 +11,13 @@ import {
   normalizeText,
 } from "./memo.js";
 import { buildIndex, retrieveAbstracts, needsAbstractRetrieval } from "./search.js";
-import { callOpenRouter, getOpenRouterModel } from "./openrouter.js";
+import { callOpenRouterWithSources, getOpenRouterModel } from "./openrouter.js";
 import { createScheduleStore } from "./schedule-store.js";
 import { isNextSeminarQuestion } from "./schedule-intent.js";
 import { buildChatSystemPrompt } from "./chat-policy.js";
 import { detectReplyLanguage, getTokyoNowParts, buildCurrentDateTimeReply, buildNextSeminarReply } from "./reply-language.js";
+import { shouldSearchWeb } from "./web-search.js";
+import { limitReplyWords } from "./reply-limit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +44,7 @@ function needsSeminarContext(message) {
     }));
   return isNextSeminarQuestion(message)
     || namedSpeaker
+    || /[’']s\s+(?:talk|lecture)\b/iu.test(message)
     || /\b(?:tps|seminars?|schedules?|speakers?|speaking|venues?|organizers?|campus|komaba|hiyoshi|locations?|directions|access|workshops?|talks|lectures)\b|\b(?:the|this|that|next|past|previous|whose|which)\s+(?:talk|lecture)\b|セミナー|講演|講師|先生|登壇|会場|幹事|キャンパス|アクセス|場所|行き方|日時|予定|日程|公式サイト|tokyo-probability-seminar23/iu.test(message);
 }
 
@@ -101,18 +104,20 @@ console.log("APIキー:", process.env.OPENROUTER_API_KEY?.trim() ? "設定済み
 
 app.post("/chat", async (req, res) => {
   const userMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-  const now = req.app.locals.testNow ? new Date(req.app.locals.testNow) : new Date();
+  let now = req.app.locals.testNow ? new Date(req.app.locals.testNow) : new Date();
   const language = detectReplyLanguage(userMessage);
   const useSeminarContext = needsSeminarContext(userMessage);
+  const webSearch = shouldSearchWeb(userMessage, { seminarContext: useSeminarContext });
+  const sendReply = (payload) => res.json({ ...payload, reply: limitReplyWords(payload.reply, language), language });
   console.log("ユーザーからメッセージを受信:", userMessage);
 
   if (!userMessage) {
-    return res.json({ reply: "Ask me about the seminar or mathematics. セミナーや数学について聞いてね。", language });
+    return sendReply({ reply: "Ask me about the seminar or mathematics. セミナーや数学について聞いてね。" });
   }
 
   // 1) 日時の質問 → 決定論fast-path(LLM不使用)
   const dateTimeReply = buildCurrentDateTimeReply(userMessage, now);
-  if (dateTimeReply) return res.json({ reply: styleDirectReply(dateTimeReply), language });
+  if (dateTimeReply) return sendReply({ reply: styleDirectReply(dateTimeReply) });
 
   // Refresh at most hourly. Tests use their fixed local fixtures without a network call.
   if (useSeminarContext && process.env.NODE_ENV !== "test") {
@@ -123,6 +128,7 @@ app.post("/chat", async (req, res) => {
       console.warn("最新の予定を取得できませんでした:", error.message);
     }
   }
+  if (!req.app.locals.testNow) now = new Date();
   const { seminars, sourceUrl, freshnessDate, siteInfo } = scheduleStore.getSnapshot();
   const sources = useSeminarContext ? [{ title: language === "en" ? "Tokyo Probability Seminar" : "東京確率論セミナー", url: sourceUrl }] : [];
   const checkedAt = freshnessDate?.toISOString() ?? null;
@@ -134,7 +140,7 @@ app.post("/chat", async (req, res) => {
   // 2) 次回/予定の質問 → 決定論fast-path(LLM不使用・ハルシネーション無し)
   if (isNextSeminarQuestion(userMessage)) {
     const next = getNextSeminar(seminars, now);
-    return res.json({ reply: styleDirectReply(buildNextSeminarReply(next, { ...freshnessMeta(now), language, sourceUrl })), sources, checkedAt, language });
+    return sendReply({ reply: styleDirectReply(buildNextSeminarReply(next, { ...freshnessMeta(now), language, sourceUrl })), sources, checkedAt });
   }
 
   // 3) それ以外 → コンパクトメモ + (必要時)要旨 を渡して LLM
@@ -144,7 +150,7 @@ app.post("/chat", async (req, res) => {
     let abstractField;
     let abstractsText = "";
     if (useSeminarContext && needsAbstractRetrieval(userMessage)) {
-      const { items, confidence, kind } = retrieveAbstracts(userMessage, searchIndex);
+      const { items, confidence, kind } = retrieveAbstracts(userMessage, searchIndex, { nextSeminar: getNextSeminar(seminars, now) });
       if (items.length) {
         abstractsText = items
           .map((it) => `・${it.dateLabel} ${it.speaker}「${it.title}」\n${it.abstractMissing ? "（要旨は未掲載）" : it.abstract}`)
@@ -159,19 +165,31 @@ app.post("/chat", async (req, res) => {
       }
     }
 
-    const systemPrompt = buildChatSystemPrompt({ language, memo, sourceUrl: useSeminarContext ? sourceUrl : "", abstractsText, siteInfo: useSeminarContext ? siteInfo : "" });
-    const reply = await callOpenRouter(systemPrompt, userMessage, { maxTokens: useSeminarContext ? 1200 : 2400 });
-    const payload = { reply, sources, checkedAt: useSeminarContext ? checkedAt : null, language };
+    const date = getTokyoNowParts(now);
+    const currentDate = `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
+    const systemPrompt = buildChatSystemPrompt({ language, memo, sourceUrl: useSeminarContext ? sourceUrl : "", abstractsText, siteInfo: useSeminarContext ? siteInfo : "", webSearch, currentDate });
+    const result = await callOpenRouterWithSources(systemPrompt, userMessage, { webSearch });
+    const payload = {
+      reply: result.reply,
+      sources: [...sources, ...result.sources],
+      checkedAt: result.webSearchUsed ? new Date().toISOString() : useSeminarContext ? checkedAt : null,
+      webSearchUsed: result.webSearchUsed,
+    };
     if (abstractField && abstractField.length) payload.abstract = abstractField;
-    return res.json(payload);
+    return sendReply(payload);
   } catch (error) {
     console.error("LLM呼び出し失敗:", error.message);
     // 生エラーは出さず、ペンギン口調で degrade(fast-path系は引き続き使える旨を案内)
-    return res.json({
-      reply: language === "en"
+    return sendReply({
+      reply: webSearch
+        ? language === "en"
+          ? "I couldn't verify this with web sources right now. Please try again with a specific paper title or mathematical topic."
+          : "今はウェブ上の出典を確認できなかったの。論文名や数学のテーマを具体的にして、もう一度試してね。"
+        : language === "en"
         ? "I couldn't produce an answer right now. Please try again shortly. I can still help with the current time and next seminar."
         : `ごめんね、今ちょっとお返事ができないの。もう一度試してね。日時や次回の予定ならすぐ答えられるよ。${OFFICIAL_URL}`,
       language,
+      webSearchUsed: false,
     });
   }
 });
@@ -182,6 +200,9 @@ app.get("/health", (req, res) => {
   const next = getNextSeminar(seminars);
   res.json({
     model: getOpenRouterModel(),
+    reasoningEffort: "low",
+    maxReplyWords: 200,
+    webSearch: { engine: "parallel", mode: "turbo", maxResults: 3 },
     seminarCount: seminars.length,
     abstractCount: searchIndex.corpus.length,
     dataAsOf: meta.dataAsOf,

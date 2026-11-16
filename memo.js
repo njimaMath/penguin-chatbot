@@ -80,7 +80,7 @@ function cleanVenue(raw) {
 }
 
 // 1ブロック本文から talks[](1件 or ダブルヘッダーで複数)を作る
-function parseTalks(body) {
+function parseTalks(body, sharedVenue) {
   const speakerLabel = /(?:講師)\s*:/gu;
   const indices = [];
   let m;
@@ -89,24 +89,29 @@ function parseTalks(body) {
   // 講師ラベルが0/1個 → 単一講演として扱う
   const segments = [];
   if (indices.length <= 1) {
-    segments.push(body);
+    segments.push({ text: body, venue: sharedVenue });
   } else {
-    // 最初の講師ラベル以降を各講師で分割(冒頭=会場等は各セグメントが共有)
+    // A new venue just before the next speaker belongs to that speaker.
     const head = body.slice(0, indices[0]);
     for (let i = 0; i < indices.length; i += 1) {
       const start = indices[i];
       const end = i + 1 < indices.length ? indices[i + 1] : body.length;
-      segments.push(head + body.slice(start, end));
+      const preceding = body.slice(i > 0 ? indices[i - 1] : 0, start);
+      const venueMarker = [...preceding.matchAll(/場所\s*:/gu)].at(-1);
+      const venue = venueMarker
+        ? cleanVenue(extractField(preceding.slice(venueMarker.index), "場所")) || sharedVenue
+        : sharedVenue;
+      segments.push({ text: head + body.slice(start, end), venue });
     }
   }
 
-  return segments.map((seg) => {
+  return segments.map(({ text: seg, venue }) => {
     const speaker = extractField(seg, "講師").replace(/\s*(氏|先生|教授)\s*$/u, "").trim();
     const timeText = extractField(seg, "時間|日時") || DEFAULT_TIME_RANGE;
     const title = extractField(seg, "Title|題目|タイトル");
     const abstract = extractField(seg, "Abstract|概要|アブストラクト");
     const timeRange = parseTimeRange(timeText);
-    return { speaker, title, abstract, timeText: timeRange.display, timeRange };
+    return { speaker, title, abstract, venue, timeText: timeRange.display, timeRange };
   });
 }
 
@@ -175,8 +180,8 @@ export function parseSeminarSchedule(rawText) {
     }
 
     const body = rawBlock.slice(dateMatch[0].length);
-    const venue = cleanVenue(extractField(body, "場所")) || DEFAULT_VENUE_SHORT;
-    const talks = parseTalks(body).map((t) => ({
+    const sharedVenue = cleanVenue(extractField(body, "場所")) || DEFAULT_VENUE_SHORT;
+    const talks = parseTalks(body, sharedVenue).map((t) => ({
       ...t,
       startTimestamp: toTokyoTimestamp(year, month, day, t.timeRange.start.hour, t.timeRange.start.minute),
       endTimestamp: toTokyoTimestamp(year, month, day, t.timeRange.end.hour, t.timeRange.end.minute),
@@ -185,7 +190,7 @@ export function parseSeminarSchedule(rawText) {
     const record = {
       year, month, day, weekday,
       dateLabel: `${year}年${month}月${day}日（${weekday}）`,
-      venue,
+      venue: talks[0]?.venue || sharedVenue,
       talks,
       isDoubleHeader: talks.length > 1,
       startTimestamp: toTokyoTimestamp(year, month, day, talks[0]?.timeRange.start.hour ?? 16, talks[0]?.timeRange.start.minute ?? 0),
@@ -222,9 +227,10 @@ function fmtTokyo(now) {
 function memoLine(s) {
   const venue = shortenVenue(s.venue);
   if (s.isDoubleHeader) {
-    const head = `- ${s.dateLabel} ダブルヘッダー 会場:${venue}`;
+    const differentVenues = s.talks.some((t) => t.venue && t.venue !== s.venue);
+    const head = `- ${s.dateLabel} ダブルヘッダー${differentVenues ? "（講演ごとに会場が異なります）" : ` 会場:${venue}`}`;
     const subs = s.talks.map(
-      (t) => `    ・${t.timeText} 講師:${t.speaker || "未掲載"} ｜タイトル:${t.title || "未掲載"}`
+      (t) => `    ・${t.timeText} 講師:${t.speaker || "未掲載"}${differentVenues ? ` 会場:${shortenVenue(t.venue || s.venue)}` : ""} ｜タイトル:${t.title || "未掲載"}`
     );
     return [head, ...subs].join("\n");
   }
